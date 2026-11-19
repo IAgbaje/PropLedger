@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
+import { testConnection } from '../lib/firebase';
 import {
   clearCachedGmailToken,
   getCurrentGmailUser,
@@ -16,6 +17,7 @@ interface IntegrationContextValue {
   status: ServerIntegrationStatus | null;
   statusLoading: boolean;
   refreshStatus: () => Promise<void>;
+  authReady: boolean;
   gmailUser: User | null;
   gmailAccessToken: string | null;
   isGmailConnected: boolean;
@@ -31,6 +33,7 @@ const IntegrationContext = createContext<IntegrationContextValue | null>(null);
 export function IntegrationProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<ServerIntegrationStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
   const [gmailUser, setGmailUser] = useState<User | null>(() => getCurrentGmailUser());
   const [gmailAccessToken, setGmailAccessToken] = useState<string | null>(null);
   const [isGmailSigningIn, setIsGmailSigningIn] = useState(false);
@@ -50,12 +53,14 @@ export function IntegrationProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     void refreshStatus();
+    void testConnection();
   }, [refreshStatus]);
 
   useEffect(() => {
     const unsub = initGmailAuth((user, token) => {
       setGmailUser(user);
       setGmailAccessToken(token);
+      setAuthReady(true);
     });
     return () => unsub();
   }, []);
@@ -67,6 +72,7 @@ export function IntegrationProvider({ children }: { children: React.ReactNode })
       const res = await gmailSignIn();
       setGmailUser(res.user);
       setGmailAccessToken(res.accessToken);
+      setAuthReady(true);
       return res;
     } catch (err) {
       const msg =
@@ -96,6 +102,7 @@ export function IntegrationProvider({ children }: { children: React.ReactNode })
         status,
         statusLoading,
         refreshStatus,
+        authReady,
         gmailUser,
         gmailAccessToken,
         isGmailConnected: Boolean(gmailAccessToken),

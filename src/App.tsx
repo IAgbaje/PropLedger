@@ -4,6 +4,7 @@ import { CalendarSyncModal } from './components/CalendarSyncModal';
 import { CommissionsView } from './components/CommissionsView';
 import { CustomMessageComposerModal } from './components/CustomMessageComposerModal';
 import { DashboardView } from './components/DashboardView';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { ExpensesMaintenanceView } from './components/ExpensesMaintenanceView';
 import { ImportView } from './components/ImportView';
 import { Layout } from './components/Layout';
@@ -53,17 +54,19 @@ function ActiveScreen() {
 export default function App() {
   return (
     <ThemeProvider>
-      <IntegrationProvider>
-        <RentalProvider>
-          <Layout>
-            <ActiveScreen />
-          </Layout>
-          <RecordPaymentModal />
-          <TenantInspectorDrawer />
-          <CustomMessageComposerModal />
-          <CalendarSyncModal />
-        </RentalProvider>
-      </IntegrationProvider>
+      <ErrorBoundary>
+        <IntegrationProvider>
+          <RentalProvider>
+            <Layout>
+              <ActiveScreen />
+            </Layout>
+            <RecordPaymentModal />
+            <TenantInspectorDrawer />
+            <CustomMessageComposerModal />
+            <CalendarSyncModal />
+          </RentalProvider>
+        </IntegrationProvider>
+      </ErrorBoundary>
     </ThemeProvider>
   );
 }

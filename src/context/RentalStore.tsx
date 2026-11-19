@@ -44,7 +44,21 @@ import {
   type ParsedPaymentImportRow,
   type ParsedTenancyRow,
 } from '../utils/rentalEngine';
+import {
+  ensureUserAndWorkspace,
+  loadWorkspaceFromFirestore,
+  seedWorkspaceSubcollections,
+  syncWorkspaceDeltaToFirestore,
+} from '../lib/firestoreLedger';
 import { hydrateRentalState } from '../utils/stateHydration';
+import {
+  applyTenantDelete,
+  applyTenantEdit,
+  applyUnitDelete,
+  applyUnitEditAndOccupant,
+  type TenantEditPayload,
+  type UnitEditAndOccupantPayload,
+} from '../utils/portfolioEdits';
 import { useIntegrations } from './IntegrationContext';
 
 const STORAGE_KEY = 'propledger_rms_state_v2';
@@ -170,6 +184,11 @@ interface RentalContextValue {
     notes?: string;
   }) => { ok: boolean; error?: string };
   updateUnitStatus: (unitId: string, status: UnitOccupancyStatus, notes?: string) => void;
+  updateUnitDetailsAndOccupant: (
+    unitId: string,
+    payload: UnitEditAndOccupantPayload
+  ) => { ok: boolean; error?: string };
+  deleteUnit: (unitId: string) => { ok: boolean; error?: string };
   createTenant: (input: {
     firstName: string;
     lastName: string;
@@ -181,6 +200,11 @@ interface RentalContextValue {
     tenantId: string,
     patch: Partial<Pick<Tenant, 'firstName' | 'lastName' | 'phone' | 'email' | 'notes' | 'archived'>>
   ) => void;
+  updateTenantDetailsAndOccupancy: (
+    tenantId: string,
+    payload: TenantEditPayload
+  ) => { ok: boolean; error?: string };
+  deleteTenant: (tenantId: string) => { ok: boolean; error?: string };
   toggleTenantNotificationPause: (tenantId: string, paused: boolean, reason: string) => void;
   overrideTenantBehaviour: (
     tenantId: string,
@@ -314,7 +338,7 @@ export type NavTab =
 const RentalContext = createContext<RentalContextValue | null>(null);
 
 export function RentalProvider({ children }: { children: React.ReactNode }) {
-  const { status: integrationStatus } = useIntegrations();
+  const { status: integrationStatus, authReady, gmailUser } = useIntegrations();
 
   const [state, setState] = useState<RentalAppState>(() => {
     try {
@@ -337,7 +361,19 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
   const [calendarSyncOpen, setCalendarSyncOpen] = useState(false);
   const [calendarSyncTenantId, setCalendarSyncTenantId] = useState<string | null>(null);
   const [clockNowMs, setClockNowMs] = useState<number>(() => Date.now());
+  const [firestoreError, setFirestoreError] = useState<Error | null>(null);
   const dispatchingIdsRef = useRef<Set<string>>(new Set());
+
+  const stateRef = useRef<RentalAppState>(state);
+  stateRef.current = state;
+  const hydratedUidRef = useRef<string | null>(null);
+  const isHydratingCloudRef = useRef<boolean>(false);
+  const lastSyncedStateRef = useRef<RentalAppState | null>(null);
+  const syncChainRef = useRef<Promise<void>>(Promise.resolve());
+
+  if (firestoreError) {
+    throw firestoreError;
+  }
 
   const openComposerFor = useCallback((prefill?: ComposerPrefill) => {
     setComposerPrefill(prefill ?? null);
@@ -378,6 +414,81 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       // ignore quota errors
     }
   }, [state]);
+
+  // Hydrate or initialize Firestore workspace when authenticated & email-verified
+  useEffect(() => {
+    if (!authReady) return;
+    if (!gmailUser || !gmailUser.emailVerified) {
+      hydratedUidRef.current = null;
+      lastSyncedStateRef.current = null;
+      return;
+    }
+    const userId = gmailUser.uid;
+    if (hydratedUidRef.current === userId && lastSyncedStateRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { isNewWorkspace } = await ensureUserAndWorkspace(gmailUser, stateRef.current);
+        if (cancelled) return;
+        if (isNewWorkspace) {
+          await seedWorkspaceSubcollections(userId, stateRef.current);
+          if (cancelled) return;
+          hydratedUidRef.current = userId;
+          lastSyncedStateRef.current = stateRef.current;
+        } else {
+          const cloudState = await loadWorkspaceFromFirestore(userId);
+          if (cancelled) return;
+          hydratedUidRef.current = userId;
+          if (cloudState) {
+            isHydratingCloudRef.current = true;
+            lastSyncedStateRef.current = cloudState;
+            setState(cloudState);
+          } else {
+            lastSyncedStateRef.current = stateRef.current;
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setFirestoreError(err instanceof Error ? err : new Error(String(err)));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, gmailUser]);
+
+  // Incremental delta sync to Firestore on local mutations
+  useEffect(() => {
+    if (isHydratingCloudRef.current) {
+      isHydratingCloudRef.current = false;
+      return;
+    }
+    if (
+      !authReady ||
+      !gmailUser ||
+      !gmailUser.emailVerified ||
+      hydratedUidRef.current !== gmailUser.uid ||
+      !lastSyncedStateRef.current
+    ) {
+      return;
+    }
+
+    const prevSynced = lastSyncedStateRef.current;
+    if (prevSynced === state) return;
+    lastSyncedStateRef.current = state;
+    const targetUid = gmailUser.uid;
+
+    syncChainRef.current = syncChainRef.current
+      .then(() => syncWorkspaceDeltaToFirestore(targetUid, prevSynced, state))
+      .catch((err) => {
+        setFirestoreError(err instanceof Error ? err : new Error(String(err)));
+      });
+  }, [state, authReady, gmailUser]);
 
   // Periodic tick to evaluate scheduled Email/SMS queue
   useEffect(() => {
@@ -627,6 +738,51 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
         ],
       };
     });
+  };
+
+  const updateUnitDetailsAndOccupant: RentalContextValue['updateUnitDetailsAndOccupant'] = (
+    unitId,
+    payload
+  ) => {
+    const res = applyUnitEditAndOccupant(stateRef.current, unitId, payload, uid);
+    if (!res.ok || !res.state) {
+      return { ok: false, error: res.error || 'Could not update unit details.' };
+    }
+    setState(res.state);
+    return { ok: true };
+  };
+
+  const deleteUnit: RentalContextValue['deleteUnit'] = (unitId) => {
+    const res = applyUnitDelete(stateRef.current, unitId, uid);
+    if (!res.ok || !res.state) {
+      return { ok: false, error: res.error || 'Could not delete unit.' };
+    }
+    setState(res.state);
+    return { ok: true };
+  };
+
+  const updateTenantDetailsAndOccupancy: RentalContextValue['updateTenantDetailsAndOccupancy'] = (
+    tenantId,
+    payload
+  ) => {
+    const res = applyTenantEdit(stateRef.current, tenantId, payload, uid);
+    if (!res.ok || !res.state) {
+      return { ok: false, error: res.error || 'Could not update tenant details.' };
+    }
+    setState(res.state);
+    return { ok: true };
+  };
+
+  const deleteTenant: RentalContextValue['deleteTenant'] = (tenantId) => {
+    const res = applyTenantDelete(stateRef.current, tenantId, uid);
+    if (!res.ok || !res.state) {
+      return { ok: false, error: res.error || 'Could not delete tenant.' };
+    }
+    setState(res.state);
+    if (selectedTenantIdForDrawer === tenantId) {
+      setSelectedTenantIdForDrawer(null);
+    }
+    return { ok: true };
   };
 
   const toggleTenantNotificationPause: RentalContextValue['toggleTenantNotificationPause'] = (
@@ -2382,8 +2538,12 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
         logAuditEvent,
         createUnit,
         updateUnitStatus,
+        updateUnitDetailsAndOccupant,
+        deleteUnit,
         createTenant,
         updateTenant,
+        updateTenantDetailsAndOccupancy,
+        deleteTenant,
         toggleTenantNotificationPause,
         overrideTenantBehaviour,
         createAgreement,

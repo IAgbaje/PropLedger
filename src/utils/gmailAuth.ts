@@ -1,13 +1,11 @@
-import { getApps, initializeApp } from 'firebase/app';
 import {
-  getAuth,
   GoogleAuthProvider,
   onAuthStateChanged,
   signInWithPopup,
   signOut,
   type User,
 } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { auth } from '../lib/firebase';
 
 export const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send'];
 export const CALENDAR_SCOPES = [
@@ -17,9 +15,6 @@ export const CALENDAR_SCOPES = [
   'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
 ];
 export const WORKSPACE_SCOPES = [...GMAIL_SCOPES, ...CALENDAR_SCOPES];
-
-const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
-const auth = getAuth(app);
 
 const provider = new GoogleAuthProvider();
 for (const scope of WORKSPACE_SCOPES) {

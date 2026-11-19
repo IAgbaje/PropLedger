@@ -750,11 +750,17 @@ export function SettingsAuditView() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Mail className="w-4 h-4 text-[var(--accent-ink)]" />
-                    <span className="hig-headline">Gmail OAuth Client</span>
+                    <span className="hig-headline">Google Account &amp; Cloud Sync</span>
                   </div>
                   <StatusBadge
-                    label={isGmailConnected ? 'Connected' : 'Ready to Connect'}
-                    tone={isGmailConnected ? 'success' : 'neutral'}
+                    label={
+                      isGmailConnected
+                        ? 'Connected'
+                        : gmailUser
+                        ? 'Cloud Synced'
+                        : 'Ready to Connect'
+                    }
+                    tone={gmailUser || isGmailConnected ? 'success' : 'neutral'}
                   />
                 </div>
                 {isGmailConnected ? (
@@ -764,22 +770,46 @@ export function SettingsAuditView() {
                       style={{ color: 'var(--status-success-ink)' }}
                     >
                       <CheckCircle2 className="w-4 h-4 shrink-0" />
-                      {gmailUser?.email || 'Connected Google Workspace (Gmail + Calendar)'}
+                      {gmailUser?.email || 'Connected Google Workspace (Firestore + Gmail + Calendar)'}
                     </span>
                     <button
                       type="button"
                       onClick={() => void disconnectGmail()}
                       className="hig-btn-secondary shrink-0"
                     >
-                      Disconnect
+                      Sign Out
                     </button>
+                  </div>
+                ) : gmailUser ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2 text-[0.8125rem]">
+                      <span
+                        className="inline-flex items-center gap-1.5 font-medium truncate"
+                        style={{ color: 'var(--status-success-ink)' }}
+                      >
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        {gmailUser.email || 'Signed in for Firestore Cloud Sync'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void disconnectGmail()}
+                        className="hig-btn-secondary shrink-0"
+                      >
+                        Sign Out
+                      </button>
+                    </div>
+                    <GoogleSignInButton
+                      onClick={() => void connectGmail()}
+                      loading={isGmailSigningIn}
+                      label="Authorize Gmail & Calendar"
+                    />
                   </div>
                 ) : (
                   <div className="pt-0.5 space-y-1.5">
                     <GoogleSignInButton
                       onClick={() => void connectGmail()}
                       loading={isGmailSigningIn}
-                      label="Connect Google (Gmail & Calendar)"
+                      label="Sign in with Google (Cloud Sync & Gmail)"
                     />
                     {gmailError && (
                       <p className="hig-caption" style={{ color: 'var(--status-danger-ink)' }}>

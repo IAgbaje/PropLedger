@@ -1,0 +1,684 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core Identity & Primitive Helpers
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'theibraheemagbaje@gmail.com'
+      );
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'theibraheemagbaje@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOptString(data, field, maxLen) {
+      return !(field in data) || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isOptBool(data, field) {
+      return !(field in data) || (data[field] is bool);
+    }
+
+    function isOptNumber(data, field) {
+      return !(field in data) || (data[field] is number);
+    }
+
+    function isWorkspaceOwner(workspaceId) {
+      return isVerifiedUser() &&
+        exists(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
+        get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerUid == request.auth.uid;
+    }
+
+    // Validation Blueprints
+    function isValidUserPublic(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'photoUrl', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.uid == request.auth.uid &&
+        data.displayName is string && data.displayName.size() <= 120 &&
+        isOptString(data, 'photoUrl', 500) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        data.updatedAt == request.time;
+    }
+
+    function isValidUserPrivate(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'role', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.uid == request.auth.uid &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+        data.role in ['manager', 'admin'] &&
+        (data.role == 'manager' || isBootstrappedAdmin()) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        data.updatedAt == request.time;
+    }
+
+    function isValidPropertyProfile(p) {
+      return p is map &&
+        p.keys().hasAll(['id', 'name', 'address', 'timezone', 'currencySymbol', 'managerName', 'managerEmail']) &&
+        p.keys().hasOnly(['id', 'name', 'address', 'timezone', 'currencySymbol', 'managerName', 'managerEmail']) &&
+        p.id is string && p.id.size() <= 128 &&
+        p.name is string && p.name.size() >= 1 && p.name.size() <= 160 &&
+        p.address is string && p.address.size() <= 300 &&
+        p.timezone is string && p.timezone.size() <= 60 &&
+        p.currencySymbol is string && p.currencySymbol.size() <= 12 &&
+        p.managerName is string && p.managerName.size() <= 120 &&
+        p.managerEmail is string && p.managerEmail.size() <= 254;
+    }
+
+    function isValidSystemSettings(s) {
+      return s is map &&
+        s.keys().hasAll([
+          'defaultRentCycle', 'securityLevyAmount', 'lawyerCommissionRatePercent',
+          'gracePeriodDays', 'receiptSlaHours', 'defaultAllocationOrder',
+          'repeatedLateThresholdCycles', 'persistentArrearsDays', 'chronicDelinquencyDays',
+          'globalNotificationsPaused', 'quietHoursStart', 'quietHoursEnd',
+          'sendTenantPaymentConfirmation', 'sendLawyerCommissionAlert',
+          'preDueOffsetsDays', 'postDueOffsetsDays', 'post30DayCadenceDays',
+          'preferredEmailProvider', 'autoSendPaymentReceipts', 'autoSendScheduledReminders',
+          'autoSendCustomScheduled', 'autoSendArrearsEscalations', 'smsUnitCostNaira'
+        ]) &&
+        s.keys().hasOnly([
+          'defaultRentCycle', 'securityLevyAmount', 'lawyerCommissionRatePercent',
+          'gracePeriodDays', 'receiptSlaHours', 'defaultAllocationOrder',
+          'repeatedLateThresholdCycles', 'persistentArrearsDays', 'chronicDelinquencyDays',
+          'globalNotificationsPaused', 'globalPauseReason', 'quietHoursStart', 'quietHoursEnd',
+          'sendTenantPaymentConfirmation', 'sendLawyerCommissionAlert',
+          'preDueOffsetsDays', 'postDueOffsetsDays', 'post30DayCadenceDays',
+          'preferredEmailProvider', 'autoSendPaymentReceipts', 'autoSendScheduledReminders',
+          'autoSendCustomScheduled', 'autoSendArrearsEscalations', 'smsUnitCostNaira'
+        ]) &&
+        s.defaultRentCycle in ['Yearly', 'Bi-Annual', 'Quarterly', 'Monthly'] &&
+        s.securityLevyAmount is number && s.securityLevyAmount >= 0 &&
+        s.lawyerCommissionRatePercent is number && s.lawyerCommissionRatePercent >= 0 && s.lawyerCommissionRatePercent <= 100 &&
+        s.gracePeriodDays is number && s.gracePeriodDays >= 0 &&
+        s.receiptSlaHours is number && s.receiptSlaHours >= 1 &&
+        s.defaultAllocationOrder in ['Oldest Overdue First', 'Rent Before Levy', 'Manual Only'] &&
+        s.repeatedLateThresholdCycles is number &&
+        s.persistentArrearsDays is number &&
+        s.chronicDelinquencyDays is number &&
+        s.globalNotificationsPaused is bool &&
+        isOptString(s, 'globalPauseReason', 300) &&
+        s.quietHoursStart is string && s.quietHoursStart.size() <= 10 &&
+        s.quietHoursEnd is string && s.quietHoursEnd.size() <= 10 &&
+        s.sendTenantPaymentConfirmation is bool &&
+        s.sendLawyerCommissionAlert is bool &&
+        s.preDueOffsetsDays is list && s.preDueOffsetsDays.size() <= 20 &&
+        (s.preDueOffsetsDays.size() == 0 || s.preDueOffsetsDays[0] is number) &&
+        s.postDueOffsetsDays is list && s.postDueOffsetsDays.size() <= 20 &&
+        (s.postDueOffsetsDays.size() == 0 || s.postDueOffsetsDays[0] is number) &&
+        s.post30DayCadenceDays is number &&
+        s.preferredEmailProvider in ['gmail', 'smtp', 'mailto', 'ledger-only'] &&
+        s.autoSendPaymentReceipts is bool &&
+        s.autoSendScheduledReminders is bool &&
+        s.autoSendCustomScheduled is bool &&
+        s.autoSendArrearsEscalations is bool &&
+        s.smsUnitCostNaira is number && s.smsUnitCostNaira >= 0;
+    }
+
+    function isValidWorkspace(data) {
+      return data.keys().hasAll(['ownerUid', 'referenceDate', 'property', 'settings', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'referenceDate', 'property', 'settings', 'createdAt', 'updatedAt']) &&
+        isValidId(data.ownerUid) &&
+        data.ownerUid == request.auth.uid &&
+        data.referenceDate is string && data.referenceDate.size() >= 8 && data.referenceDate.size() <= 20 &&
+        isValidPropertyProfile(data.property) &&
+        isValidSystemSettings(data.settings) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        data.updatedAt == request.time;
+    }
+
+    function isValidUnit(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'code', 'name', 'type', 'floorOrWing', 'occupancyStatus', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'code', 'name', 'type', 'floorOrWing', 'occupancyStatus', 'notes', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        data.code is string && data.code.size() >= 1 && data.code.size() <= 64 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.type in ['Bedroom', 'Room', 'Room & Parlour', 'Shop', 'Kiosk', 'Container Shop', 'Other'] &&
+        data.floorOrWing is string && data.floorOrWing.size() <= 80 &&
+        data.occupancyStatus in ['Occupied', 'Vacant', 'Under Maintenance'] &&
+        isOptString(data, 'notes', 1000) &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidTenant(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'firstName', 'lastName', 'phone', 'email', 'archived', 'notificationsPaused', 'historicalLateCycles', 'createdAt', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'firstName', 'lastName', 'phone', 'email', 'archived', 'notificationsPaused', 'pauseReason', 'behaviourOverride', 'behaviourOverrideReason', 'historicalLateCycles', 'createdAt', 'notes', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 80 &&
+        data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 80 &&
+        data.phone is string && data.phone.size() <= 40 &&
+        data.email is string && data.email.size() <= 254 &&
+        data.archived is bool &&
+        data.notificationsPaused is bool &&
+        isOptString(data, 'pauseReason', 300) &&
+        isOptString(data, 'behaviourOverride', 60) &&
+        isOptString(data, 'behaviourOverrideReason', 300) &&
+        data.historicalLateCycles is number && data.historicalLateCycles >= 0 &&
+        data.createdAt is string && data.createdAt.size() <= 40 &&
+        isOptString(data, 'notes', 1000) &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidAgreement(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'tenantId', 'unitId', 'status', 'rentCycle', 'agreedRent', 'securityLevy', 'startDate', 'endDate', 'dueDate', 'createdAt', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'tenantId', 'unitId', 'status', 'rentCycle', 'agreedRent', 'securityLevy', 'startDate', 'endDate', 'dueDate', 'supersededById', 'previousAgreementId', 'exceptionNote', 'createdAt', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        isValidId(data.tenantId) &&
+        isValidId(data.unitId) &&
+        data.status in ['Draft', 'Active', 'Expired', 'Renewed / Superseded', 'Terminated', 'Cancelled'] &&
+        data.rentCycle in ['Yearly', 'Bi-Annual', 'Quarterly', 'Monthly'] &&
+        data.agreedRent is number && data.agreedRent >= 0 &&
+        data.securityLevy is number && data.securityLevy >= 0 &&
+        data.startDate is string && data.startDate.size() <= 20 &&
+        data.endDate is string && data.endDate.size() <= 20 &&
+        data.dueDate is string && data.dueDate.size() <= 20 &&
+        isOptString(data, 'supersededById', 128) &&
+        isOptString(data, 'previousAgreementId', 128) &&
+        isOptString(data, 'exceptionNote', 500) &&
+        data.createdAt is string && data.createdAt.size() <= 40 &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidObligation(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'agreementId', 'tenantId', 'unitId', 'chargeType', 'rentalPeriodLabel', 'originalAmount', 'dueDate', 'underReview', 'createdAt', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'agreementId', 'tenantId', 'unitId', 'chargeType', 'rentalPeriodLabel', 'originalAmount', 'dueDate', 'underReview', 'reviewReason', 'settledAt', 'settledLateDays', 'createdAt', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        isValidId(data.agreementId) &&
+        isValidId(data.tenantId) &&
+        isValidId(data.unitId) &&
+        data.chargeType in ['Rent', 'Security Levy', 'Other Charge'] &&
+        data.rentalPeriodLabel is string && data.rentalPeriodLabel.size() >= 1 && data.rentalPeriodLabel.size() <= 120 &&
+        data.originalAmount is number && data.originalAmount >= 0 &&
+        data.dueDate is string && data.dueDate.size() <= 20 &&
+        data.underReview is bool &&
+        isOptString(data, 'reviewReason', 300) &&
+        isOptString(data, 'settledAt', 40) &&
+        isOptNumber(data, 'settledLateDays') &&
+        data.createdAt is string && data.createdAt.size() <= 40 &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidPayment(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'systemRef', 'tenantId', 'agreementId', 'unitId', 'amount', 'dateReceived', 'dateRecorded', 'method', 'bankReference', 'status', 'allocations', 'unappliedAmount', 'notes', 'recordedBy', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'systemRef', 'tenantId', 'agreementId', 'unitId', 'amount', 'dateReceived', 'dateRecorded', 'method', 'bankReference', 'status', 'allocations', 'unappliedAmount', 'notes', 'recordedBy', 'duplicateFlag', 'reversalReason', 'reversedAt', 'adjustedFromPaymentId', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        data.systemRef is string && data.systemRef.size() <= 64 &&
+        isValidId(data.tenantId) &&
+        isValidId(data.agreementId) &&
+        isValidId(data.unitId) &&
+        data.amount is number && data.amount >= 0 &&
+        data.dateReceived is string && data.dateReceived.size() <= 20 &&
+        data.dateRecorded is string && data.dateRecorded.size() <= 40 &&
+        data.method in ['Bank Transfer', 'POS', 'Cash', 'Cheque'] &&
+        data.bankReference is string && data.bankReference.size() <= 120 &&
+        data.status in ['Confirmed', 'Reversed'] &&
+        data.allocations is list && data.allocations.size() <= 50 &&
+        (data.allocations.size() == 0 || data.allocations[0] is map) &&
+        data.unappliedAmount is number && data.unappliedAmount >= 0 &&
+        data.notes is string && data.notes.size() <= 1000 &&
+        data.recordedBy is string && data.recordedBy.size() <= 120 &&
+        isOptBool(data, 'duplicateFlag') &&
+        isOptString(data, 'reversalReason', 300) &&
+        isOptString(data, 'reversedAt', 40) &&
+        isOptString(data, 'adjustedFromPaymentId', 128) &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidReceiptRequest(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'paymentId', 'paymentRef', 'tenantId', 'unitId', 'amount', 'datePaid', 'rentalPeriodCovered', 'securityLevyIncluded', 'remainingBalanceAtPayment', 'issuerContactId', 'status', 'createdAt', 'slaDeadlineAt', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'paymentId', 'paymentRef', 'tenantId', 'unitId', 'amount', 'datePaid', 'rentalPeriodCovered', 'securityLevyIncluded', 'remainingBalanceAtPayment', 'issuerContactId', 'status', 'createdAt', 'slaDeadlineAt', 'acknowledgedAt', 'acknowledgedNote', 'officialReceiptNumber', 'issuedDate', 'evidenceNote', 'cancellationReason', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        isValidId(data.paymentId) &&
+        data.paymentRef is string && data.paymentRef.size() <= 64 &&
+        isValidId(data.tenantId) &&
+        isValidId(data.unitId) &&
+        data.amount is number && data.amount >= 0 &&
+        data.datePaid is string && data.datePaid.size() <= 20 &&
+        data.rentalPeriodCovered is string && data.rentalPeriodCovered.size() <= 160 &&
+        data.securityLevyIncluded is number && data.securityLevyIncluded >= 0 &&
+        data.remainingBalanceAtPayment is number && data.remainingBalanceAtPayment >= 0 &&
+        isValidId(data.issuerContactId) &&
+        data.status in ['Created', 'Notified', 'Acknowledged', 'Overdue', 'Issued', 'Correction Required', 'Cancelled'] &&
+        data.createdAt is string && data.createdAt.size() <= 40 &&
+        data.slaDeadlineAt is string && data.slaDeadlineAt.size() <= 40 &&
+        isOptString(data, 'acknowledgedAt', 40) &&
+        isOptString(data, 'acknowledgedNote', 300) &&
+        isOptString(data, 'officialReceiptNumber', 80) &&
+        isOptString(data, 'issuedDate', 20) &&
+        isOptString(data, 'evidenceNote', 500) &&
+        isOptString(data, 'cancellationReason', 300) &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'eventId', 'eventType', 'relatedRecordId', 'recipientName', 'recipientRole', 'recipientContact', 'channel', 'status', 'messageBody', 'scheduledAt', 'retryCount', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'eventId', 'eventType', 'relatedRecordId', 'tenantId', 'recipientName', 'recipientRole', 'recipientContact', 'channel', 'status', 'subject', 'messageBody', 'scheduledAt', 'attemptedAt', 'retryCount', 'failureReason', 'isCustom', 'deliveryProvider', 'externalMessageId', 'smsUnits', 'smsCostNaira', 'createdBy', 'overrideQuietHours', 'cancelledAt', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        data.eventId is string && data.eventId.size() <= 128 &&
+        data.eventType is string && data.eventType.size() <= 80 &&
+        data.relatedRecordId is string && data.relatedRecordId.size() <= 128 &&
+        isOptString(data, 'tenantId', 128) &&
+        data.recipientName is string && data.recipientName.size() <= 120 &&
+        data.recipientRole is string && data.recipientRole.size() <= 60 &&
+        data.recipientContact is string && data.recipientContact.size() <= 254 &&
+        data.channel in ['SMS', 'Email'] &&
+        data.status in ['Queued', 'Sent', 'Delivered', 'Failed', 'Retry Pending', 'Exhausted / Action Required', 'Cancelled'] &&
+        isOptString(data, 'subject', 300) &&
+        data.messageBody is string && data.messageBody.size() <= 8000 &&
+        data.scheduledAt is string && data.scheduledAt.size() <= 40 &&
+        isOptString(data, 'attemptedAt', 40) &&
+        data.retryCount is number && data.retryCount >= 0 &&
+        isOptString(data, 'failureReason', 500) &&
+        isOptBool(data, 'isCustom') &&
+        isOptString(data, 'deliveryProvider', 40) &&
+        isOptString(data, 'externalMessageId', 200) &&
+        isOptNumber(data, 'smsUnits') &&
+        isOptNumber(data, 'smsCostNaira') &&
+        isOptString(data, 'createdBy', 120) &&
+        isOptBool(data, 'overrideQuietHours') &&
+        isOptString(data, 'cancelledAt', 40) &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidSmsTemplate(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'name', 'category', 'body', 'updatedAt', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'name', 'category', 'body', 'updatedAt', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.category in ['Rent Reminder', 'Payment Receipt', 'Maintenance Update', 'General'] &&
+        data.body is string && data.body.size() >= 1 && data.body.size() <= 1600 &&
+        data.updatedAt is string && data.updatedAt.size() <= 40 &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidCommitment(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'tenantId', 'obligationIds', 'promisedAmount', 'promisedDate', 'instalments', 'status', 'dateRecorded', 'recordedBy', 'notes', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'tenantId', 'obligationIds', 'promisedAmount', 'promisedDate', 'extendedUntilDate', 'instalments', 'status', 'dateRecorded', 'recordedBy', 'notes', 'cancellationReason', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        isValidId(data.tenantId) &&
+        data.obligationIds is list && data.obligationIds.size() <= 50 &&
+        (data.obligationIds.size() == 0 || data.obligationIds[0] is string) &&
+        data.promisedAmount is number && data.promisedAmount >= 0 &&
+        data.promisedDate is string && data.promisedDate.size() <= 20 &&
+        isOptString(data, 'extendedUntilDate', 20) &&
+        data.instalments is list && data.instalments.size() <= 24 &&
+        (data.instalments.size() == 0 || data.instalments[0] is map) &&
+        data.status in ['Open', 'Partially Fulfilled', 'Fulfilled', 'Breached', 'Cancelled'] &&
+        data.dateRecorded is string && data.dateRecorded.size() <= 40 &&
+        data.recordedBy is string && data.recordedBy.size() <= 120 &&
+        data.notes is string && data.notes.size() <= 1000 &&
+        isOptString(data, 'cancellationReason', 300) &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidCommission(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'paymentId', 'agreementId', 'tenantId', 'ratePercent', 'eligibleRentCollected', 'accruedAmount', 'createdAt', 'note', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'paymentId', 'agreementId', 'tenantId', 'ratePercent', 'eligibleRentCollected', 'accruedAmount', 'createdAt', 'isReversalAdjustment', 'note', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        isValidId(data.paymentId) &&
+        isValidId(data.agreementId) &&
+        isValidId(data.tenantId) &&
+        data.ratePercent is number &&
+        data.eligibleRentCollected is number &&
+        data.accruedAmount is number &&
+        data.createdAt is string && data.createdAt.size() <= 40 &&
+        isOptBool(data, 'isReversalAdjustment') &&
+        data.note is string && data.note.size() <= 400 &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidCommissionPayout(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'lawyerContactId', 'amount', 'payoutDate', 'reference', 'notes', 'recordedBy', 'createdAt', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'lawyerContactId', 'amount', 'payoutDate', 'reference', 'notes', 'recordedBy', 'createdAt', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        isValidId(data.lawyerContactId) &&
+        data.amount is number && data.amount >= 0 &&
+        data.payoutDate is string && data.payoutDate.size() <= 20 &&
+        data.reference is string && data.reference.size() <= 120 &&
+        data.notes is string && data.notes.size() <= 600 &&
+        data.recordedBy is string && data.recordedBy.size() <= 120 &&
+        data.createdAt is string && data.createdAt.size() <= 40 &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidExpense(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'date', 'amount', 'category', 'description', 'vendor', 'createdAt', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'date', 'amount', 'category', 'description', 'vendor', 'paymentMethod', 'reference', 'notes', 'createdAt', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        data.date is string && data.date.size() <= 20 &&
+        data.amount is number && data.amount >= 0 &&
+        data.category in ['Repairs', 'Security', 'Utilities', 'Cleaning', 'Legal & Admin', 'Other'] &&
+        data.description is string && data.description.size() <= 300 &&
+        data.vendor is string && data.vendor.size() <= 120 &&
+        isOptString(data, 'paymentMethod', 40) &&
+        isOptString(data, 'reference', 120) &&
+        isOptString(data, 'notes', 1000) &&
+        data.createdAt is string && data.createdAt.size() <= 40 &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidMaintenance(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'issue', 'dateReported', 'status', 'assignedTo', 'estimatedOrActualCost', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'unitId', 'issue', 'dateReported', 'status', 'assignedTo', 'estimatedOrActualCost', 'resolutionDetails', 'resolvedDate', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        isOptString(data, 'unitId', 128) &&
+        data.issue is string && data.issue.size() <= 300 &&
+        data.dateReported is string && data.dateReported.size() <= 20 &&
+        data.status in ['Open', 'In Progress', 'Resolved'] &&
+        data.assignedTo is string && data.assignedTo.size() <= 120 &&
+        data.estimatedOrActualCost is number && data.estimatedOrActualCost >= 0 &&
+        isOptString(data, 'resolutionDetails', 600) &&
+        isOptString(data, 'resolvedDate', 20) &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidContact(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'name', 'role', 'phone', 'email', 'smsEnabled', 'emailEnabled', 'receivesArrearsEscalations', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'name', 'role', 'phone', 'email', 'isPrimaryReceiptIssuer', 'isBackupEscalation', 'smsEnabled', 'emailEnabled', 'receivesArrearsEscalations', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        data.name is string && data.name.size() <= 120 &&
+        data.role in ['Property Manager', 'Receipt Issuer', 'Lawyer', 'Additional Contact'] &&
+        data.phone is string && data.phone.size() <= 40 &&
+        data.email is string && data.email.size() <= 254 &&
+        isOptBool(data, 'isPrimaryReceiptIssuer') &&
+        isOptBool(data, 'isBackupEscalation') &&
+        data.smsEnabled is bool &&
+        data.emailEnabled is bool &&
+        data.receivesArrearsEscalations is bool &&
+        data.syncedAt == request.time;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'timestamp', 'actor', 'entityType', 'entityId', 'action', 'summary', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'timestamp', 'actor', 'entityType', 'entityId', 'action', 'summary', 'previousValue', 'newValue', 'reason', 'syncedAt']) &&
+        isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
+        isValidId(data.id) &&
+        data.timestamp is string && data.timestamp.size() <= 40 &&
+        data.actor is string && data.actor.size() <= 120 &&
+        data.entityType in ['Property', 'Unit', 'Tenant', 'Agreement', 'Obligation', 'Payment', 'Receipt', 'Commitment', 'Notification', 'Commission', 'Expense', 'Maintenance', 'Import', 'Settings', 'Template', 'Contact'] &&
+        data.entityId is string && data.entityId.size() <= 128 &&
+        data.action is string && data.action.size() <= 120 &&
+        data.summary is string && data.summary.size() <= 1000 &&
+        isOptString(data, 'previousValue', 300) &&
+        isOptString(data, 'newValue', 300) &&
+        isOptString(data, 'reason', 400) &&
+        data.syncedAt == request.time;
+    }
+
+    // Users & PII Isolation
+    match /users/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerifiedUser() && isValidId(userId) && isOwner(userId) && isValidUserPublic(incoming()) &&
+        incoming().createdAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(userId) && (isOwner(userId) || isAdmin()) && isValidUserPublic(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(userId) && isAdmin();
+
+      match /private/{docId} {
+        allow get: if isVerifiedUser() && isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if isVerifiedUser() && (isOwner(userId) || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(userId) && isValidId(docId) && isOwner(userId) && isValidUserPrivate(incoming()) &&
+          incoming().createdAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin()) && isValidUserPrivate(incoming()) &&
+          incoming().uid == existing().uid &&
+          incoming().createdAt == existing().createdAt &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']));
+        allow delete: if isVerifiedUser() && isValidId(userId) && isValidId(docId) && isAdmin();
+      }
+    }
+
+    // Admins (no client self-assignment)
+    match /admins/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list, create, update, delete: if false;
+    }
+
+    // Workspaces & Master-Gated Ledger Subcollections
+    match /workspaces/{workspaceId} {
+      allow get: if isValidId(workspaceId) && isVerifiedUser() && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isValidId(workspaceId) && isVerifiedUser() && workspaceId == request.auth.uid &&
+        isValidWorkspace(incoming()) && incoming().createdAt == request.time;
+      allow update: if isValidId(workspaceId) && isVerifiedUser() &&
+        isValidWorkspace(incoming()) &&
+        (existing().ownerUid == request.auth.uid || isAdmin()) &&
+        incoming().ownerUid == existing().ownerUid &&
+        incoming().createdAt == existing().createdAt &&
+        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['referenceDate', 'property', 'settings', 'updatedAt']));
+      allow delete: if isVerifiedUser() && isValidId(workspaceId) && isAdmin();
+
+      match /units/{unitId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(unitId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(unitId) && isValidUnit(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if isVerifiedUser() && isValidId(workspaceId) && isValidId(unitId) && isValidUnit(incoming()) &&
+          (isWorkspaceOwner(workspaceId) || isAdmin()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().id == existing().id &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['code', 'name', 'type', 'floorOrWing', 'occupancyStatus', 'notes', 'syncedAt']));
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(unitId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /tenants/{tenantId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(tenantId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(tenantId) && isValidTenant(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if isVerifiedUser() && isValidId(workspaceId) && isValidId(tenantId) && isValidTenant(incoming()) &&
+          (isWorkspaceOwner(workspaceId) || isAdmin()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().id == existing().id &&
+          incoming().createdAt == existing().createdAt &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'phone', 'email', 'archived', 'notificationsPaused', 'pauseReason', 'behaviourOverride', 'behaviourOverrideReason', 'historicalLateCycles', 'notes', 'syncedAt']));
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(tenantId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /agreements/{agreementId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(agreementId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(agreementId) && isValidAgreement(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if isVerifiedUser() && isValidId(workspaceId) && isValidId(agreementId) && isValidAgreement(incoming()) &&
+          (isWorkspaceOwner(workspaceId) || isAdmin()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().id == existing().id &&
+          incoming().createdAt == existing().createdAt &&
+          (!(existing().status in ['Renewed / Superseded', 'Terminated', 'Cancelled']) || isAdmin()) &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'tenantId', 'status', 'rentCycle', 'agreedRent', 'securityLevy', 'startDate', 'endDate', 'dueDate', 'supersededById', 'previousAgreementId', 'exceptionNote', 'syncedAt']));
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(agreementId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /obligations/{obligationId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(obligationId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(obligationId) && isValidObligation(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if isVerifiedUser() && isValidId(workspaceId) && isValidId(obligationId) && isValidObligation(incoming()) &&
+          (isWorkspaceOwner(workspaceId) || isAdmin()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().id == existing().id &&
+          incoming().createdAt == existing().createdAt &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'tenantId', 'rentalPeriodLabel', 'originalAmount', 'dueDate', 'underReview', 'reviewReason', 'settledAt', 'settledLateDays', 'syncedAt']));
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(obligationId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /payments/{paymentId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(paymentId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(paymentId) && isValidPayment(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if isVerifiedUser() && isValidId(workspaceId) && isValidId(paymentId) && isValidPayment(incoming()) &&
+          (isWorkspaceOwner(workspaceId) || isAdmin()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().id == existing().id &&
+          (existing().status != 'Reversed' || isAdmin()) &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'status', 'reversalReason', 'reversedAt', 'notes', 'syncedAt']));
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(paymentId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /receiptRequests/{receiptId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(receiptId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(receiptId) && isValidReceiptRequest(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if isVerifiedUser() && isValidId(workspaceId) && isValidId(receiptId) && isValidReceiptRequest(incoming()) &&
+          (isWorkspaceOwner(workspaceId) || isAdmin()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().id == existing().id &&
+          incoming().createdAt == existing().createdAt &&
+          ((!(existing().status in ['Issued', 'Cancelled']) || (existing().status == 'Issued' && incoming().status == 'Correction Required')) || isAdmin()) &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'status', 'acknowledgedAt', 'acknowledgedNote', 'officialReceiptNumber', 'issuedDate', 'evidenceNote', 'cancellationReason', 'syncedAt']));
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(receiptId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /notifications/{notificationId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(notificationId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(notificationId) && isValidNotification(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if isVerifiedUser() && isValidId(workspaceId) && isValidId(notificationId) && isValidNotification(incoming()) &&
+          (isWorkspaceOwner(workspaceId) || isAdmin()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().id == existing().id &&
+          (existing().status != 'Cancelled' || isAdmin()) &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['status', 'attemptedAt', 'retryCount', 'failureReason', 'deliveryProvider', 'externalMessageId', 'smsUnits', 'smsCostNaira', 'scheduledAt', 'overrideQuietHours', 'cancelledAt', 'syncedAt']));
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(notificationId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /smsTemplates/{templateId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(templateId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(templateId) && isValidSmsTemplate(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if isVerifiedUser() && isValidId(workspaceId) && isValidId(templateId) && isValidSmsTemplate(incoming()) &&
+          (isWorkspaceOwner(workspaceId) || isAdmin()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().id == existing().id &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'body', 'updatedAt', 'syncedAt']));
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(templateId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /commitments/{commitmentId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(commitmentId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(commitmentId) && isValidCommitment(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if isVerifiedUser() && isValidId(workspaceId) && isValidId(commitmentId) && isValidCommitment(incoming()) &&
+          (isWorkspaceOwner(workspaceId) || isAdmin()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().id == existing().id &&
+          (!(existing().status in ['Fulfilled', 'Cancelled']) || isAdmin()) &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['status', 'extendedUntilDate', 'notes', 'cancellationReason', 'syncedAt']));
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(commitmentId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /commissions/{commissionId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(commissionId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(commissionId) && isValidCommission(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if false;
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(commissionId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /commissionPayouts/{payoutId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(payoutId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(payoutId) && isValidCommissionPayout(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if false;
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(payoutId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /expenses/{expenseId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(expenseId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(expenseId) && isValidExpense(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if isVerifiedUser() && isValidId(workspaceId) && isValidId(expenseId) && isValidExpense(incoming()) &&
+          (isWorkspaceOwner(workspaceId) || isAdmin()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().id == existing().id &&
+          incoming().createdAt == existing().createdAt &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['date', 'amount', 'category', 'description', 'vendor', 'paymentMethod', 'reference', 'notes', 'syncedAt']));
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(expenseId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /maintenance/{maintenanceId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(maintenanceId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(maintenanceId) && isValidMaintenance(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if isVerifiedUser() && isValidId(workspaceId) && isValidId(maintenanceId) && isValidMaintenance(incoming()) &&
+          (isWorkspaceOwner(workspaceId) || isAdmin()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().id == existing().id &&
+          ((existing().status != 'Resolved' || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'syncedAt'])) || isAdmin()) &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'status', 'assignedTo', 'estimatedOrActualCost', 'resolutionDetails', 'resolvedDate', 'syncedAt']));
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(maintenanceId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /contacts/{contactId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(contactId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(contactId) && isValidContact(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if isVerifiedUser() && isValidId(workspaceId) && isValidId(contactId) && isValidContact(incoming()) &&
+          (isWorkspaceOwner(workspaceId) || isAdmin()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().id == existing().id &&
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'role', 'phone', 'email', 'isPrimaryReceiptIssuer', 'isBackupEscalation', 'smsEnabled', 'emailEnabled', 'receivesArrearsEscalations', 'syncedAt']));
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(contactId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /auditLogs/{auditId} {
+        allow get: if isVerifiedUser() && isValidId(workspaceId) && isValidId(auditId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() && isValidId(workspaceId) && isValidId(auditId) && isValidAuditLog(incoming()) && isWorkspaceOwner(workspaceId);
+        allow update: if false;
+        allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(auditId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+    }
+  }
+}

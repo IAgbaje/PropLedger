@@ -1,0 +1,467 @@
+{
+  "entities": {
+    "UserPublicProfile": {
+      "title": "UserPublicProfile",
+      "description": "Non-PII public profile record for an authenticated user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "photoUrl": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII record for an authenticated user (email and role).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "role": { "type": "string", "enum": ["manager", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "createdAt", "updatedAt"]
+    },
+    "AdminMarker": {
+      "title": "AdminMarker",
+      "description": "Server-managed administrator role assignment document.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "grantedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "grantedAt"]
+    },
+    "Workspace": {
+      "title": "Workspace",
+      "description": "Root property ledger workspace containing property profile and system policy settings.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "referenceDate": { "type": "string", "maxLength": 20 },
+        "property": { "type": "object" },
+        "settings": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "referenceDate", "property", "settings", "createdAt", "updatedAt"]
+    },
+    "UnitRecord": {
+      "title": "UnitRecord",
+      "description": "Rentable unit in the property portfolio.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "code": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "type": { "type": "string", "enum": ["Bedroom", "Room", "Room & Parlour", "Shop", "Kiosk", "Container Shop", "Other"] },
+        "floorOrWing": { "type": "string", "maxLength": 80 },
+        "occupancyStatus": { "type": "string", "enum": ["Occupied", "Vacant", "Under Maintenance"] },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "code", "name", "type", "floorOrWing", "occupancyStatus", "syncedAt"]
+    },
+    "TenantRecord": {
+      "title": "TenantRecord",
+      "description": "Tenant contact and compliance record (PII protected per owner/admin).",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "firstName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "lastName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 254 },
+        "archived": { "type": "boolean" },
+        "notificationsPaused": { "type": "boolean" },
+        "pauseReason": { "type": "string", "maxLength": 300 },
+        "behaviourOverride": { "type": "string", "maxLength": 60 },
+        "behaviourOverrideReason": { "type": "string", "maxLength": 300 },
+        "historicalLateCycles": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "firstName", "lastName", "phone", "email", "archived", "notificationsPaused", "historicalLateCycles", "createdAt", "syncedAt"]
+    },
+    "AgreementRecord": {
+      "title": "AgreementRecord",
+      "description": "Lease agreement linking a tenant to a unit.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "tenantId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "unitId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "status": { "type": "string", "enum": ["Draft", "Active", "Expired", "Renewed / Superseded", "Terminated", "Cancelled"] },
+        "rentCycle": { "type": "string", "enum": ["Yearly", "Bi-Annual", "Quarterly", "Monthly"] },
+        "agreedRent": { "type": "number" },
+        "securityLevy": { "type": "number" },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 20 },
+        "dueDate": { "type": "string", "maxLength": 20 },
+        "supersededById": { "type": "string", "maxLength": 128 },
+        "previousAgreementId": { "type": "string", "maxLength": 128 },
+        "exceptionNote": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "tenantId", "unitId", "status", "rentCycle", "agreedRent", "securityLevy", "startDate", "endDate", "dueDate", "createdAt", "syncedAt"]
+    },
+    "ObligationRecord": {
+      "title": "ObligationRecord",
+      "description": "Billed rent or security levy charge.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "agreementId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tenantId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "unitId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "chargeType": { "type": "string", "enum": ["Rent", "Security Levy", "Other Charge"] },
+        "rentalPeriodLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "originalAmount": { "type": "number" },
+        "dueDate": { "type": "string", "maxLength": 20 },
+        "underReview": { "type": "boolean" },
+        "reviewReason": { "type": "string", "maxLength": 300 },
+        "settledAt": { "type": "string", "maxLength": 40 },
+        "settledLateDays": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "agreementId", "tenantId", "unitId", "chargeType", "rentalPeriodLabel", "originalAmount", "dueDate", "underReview", "createdAt", "syncedAt"]
+    },
+    "PaymentRecord": {
+      "title": "PaymentRecord",
+      "description": "Recorded rent or levy payment and obligation allocations.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "systemRef": { "type": "string", "maxLength": 64 },
+        "tenantId": { "type": "string", "maxLength": 128 },
+        "agreementId": { "type": "string", "maxLength": 128 },
+        "unitId": { "type": "string", "maxLength": 128 },
+        "amount": { "type": "number" },
+        "dateReceived": { "type": "string", "maxLength": 20 },
+        "dateRecorded": { "type": "string", "maxLength": 40 },
+        "method": { "type": "string", "enum": ["Bank Transfer", "POS", "Cash", "Cheque"] },
+        "bankReference": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["Confirmed", "Reversed"] },
+        "allocations": { "type": "array" },
+        "unappliedAmount": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "recordedBy": { "type": "string", "maxLength": 120 },
+        "duplicateFlag": { "type": "boolean" },
+        "reversalReason": { "type": "string", "maxLength": 300 },
+        "reversedAt": { "type": "string", "maxLength": 40 },
+        "adjustedFromPaymentId": { "type": "string", "maxLength": 128 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "systemRef", "tenantId", "agreementId", "unitId", "amount", "dateReceived", "dateRecorded", "method", "bankReference", "status", "allocations", "unappliedAmount", "notes", "recordedBy", "syncedAt"]
+    },
+    "ReceiptRequestRecord": {
+      "title": "ReceiptRequestRecord",
+      "description": "Receipt issuance tracking and SLA workflow record.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "paymentId": { "type": "string", "maxLength": 128 },
+        "paymentRef": { "type": "string", "maxLength": 64 },
+        "tenantId": { "type": "string", "maxLength": 128 },
+        "unitId": { "type": "string", "maxLength": 128 },
+        "amount": { "type": "number" },
+        "datePaid": { "type": "string", "maxLength": 20 },
+        "rentalPeriodCovered": { "type": "string", "maxLength": 160 },
+        "securityLevyIncluded": { "type": "number" },
+        "remainingBalanceAtPayment": { "type": "number" },
+        "issuerContactId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["Created", "Notified", "Acknowledged", "Overdue", "Issued", "Correction Required", "Cancelled"] },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "slaDeadlineAt": { "type": "string", "maxLength": 40 },
+        "acknowledgedAt": { "type": "string", "maxLength": 40 },
+        "acknowledgedNote": { "type": "string", "maxLength": 300 },
+        "officialReceiptNumber": { "type": "string", "maxLength": 80 },
+        "issuedDate": { "type": "string", "maxLength": 20 },
+        "evidenceNote": { "type": "string", "maxLength": 500 },
+        "cancellationReason": { "type": "string", "maxLength": 300 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "paymentId", "paymentRef", "tenantId", "unitId", "amount", "datePaid", "rentalPeriodCovered", "securityLevyIncluded", "remainingBalanceAtPayment", "issuerContactId", "status", "createdAt", "slaDeadlineAt", "syncedAt"]
+    },
+    "NotificationLogRecord": {
+      "title": "NotificationLogRecord",
+      "description": "Email and SMS dispatch record including BulkSMSLive DLR metadata.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "eventId": { "type": "string", "maxLength": 128 },
+        "eventType": { "type": "string", "maxLength": 80 },
+        "relatedRecordId": { "type": "string", "maxLength": 128 },
+        "tenantId": { "type": "string", "maxLength": 128 },
+        "recipientName": { "type": "string", "maxLength": 120 },
+        "recipientRole": { "type": "string", "maxLength": 60 },
+        "recipientContact": { "type": "string", "maxLength": 254 },
+        "channel": { "type": "string", "enum": ["SMS", "Email"] },
+        "status": { "type": "string", "enum": ["Queued", "Sent", "Delivered", "Failed", "Retry Pending", "Exhausted / Action Required", "Cancelled"] },
+        "subject": { "type": "string", "maxLength": 300 },
+        "messageBody": { "type": "string", "maxLength": 8000 },
+        "scheduledAt": { "type": "string", "maxLength": 40 },
+        "attemptedAt": { "type": "string", "maxLength": 40 },
+        "retryCount": { "type": "number" },
+        "failureReason": { "type": "string", "maxLength": 500 },
+        "isCustom": { "type": "boolean" },
+        "deliveryProvider": { "type": "string", "maxLength": 40 },
+        "externalMessageId": { "type": "string", "maxLength": 200 },
+        "smsUnits": { "type": "number" },
+        "smsCostNaira": { "type": "number" },
+        "createdBy": { "type": "string", "maxLength": 120 },
+        "overrideQuietHours": { "type": "boolean" },
+        "cancelledAt": { "type": "string", "maxLength": 40 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "eventId", "eventType", "relatedRecordId", "recipientName", "recipientRole", "recipientContact", "channel", "status", "messageBody", "scheduledAt", "retryCount", "syncedAt"]
+    },
+    "SmsTemplateRecord": {
+      "title": "SmsTemplateRecord",
+      "description": "Reusable SMS template with placeholder tokens.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "category": { "type": "string", "enum": ["Rent Reminder", "Payment Receipt", "Maintenance Update", "General"] },
+        "body": { "type": "string", "minLength": 1, "maxLength": 1600 },
+        "updatedAt": { "type": "string", "maxLength": 40 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "name", "category", "body", "updatedAt", "syncedAt"]
+    },
+    "CommitmentRecord": {
+      "title": "CommitmentRecord",
+      "description": "Tenant promise-to-pay commitment record.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "tenantId": { "type": "string", "maxLength": 128 },
+        "obligationIds": { "type": "array" },
+        "promisedAmount": { "type": "number" },
+        "promisedDate": { "type": "string", "maxLength": 20 },
+        "extendedUntilDate": { "type": "string", "maxLength": 20 },
+        "instalments": { "type": "array" },
+        "status": { "type": "string", "enum": ["Open", "Partially Fulfilled", "Fulfilled", "Breached", "Cancelled"] },
+        "dateRecorded": { "type": "string", "maxLength": 40 },
+        "recordedBy": { "type": "string", "maxLength": 120 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "cancellationReason": { "type": "string", "maxLength": 300 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "tenantId", "obligationIds", "promisedAmount", "promisedDate", "instalments", "status", "dateRecorded", "recordedBy", "notes", "syncedAt"]
+    },
+    "CommissionRecordDoc": {
+      "title": "CommissionRecordDoc",
+      "description": "Lawyer commission accrual ledger entry.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "paymentId": { "type": "string", "maxLength": 128 },
+        "agreementId": { "type": "string", "maxLength": 128 },
+        "tenantId": { "type": "string", "maxLength": 128 },
+        "ratePercent": { "type": "number" },
+        "eligibleRentCollected": { "type": "number" },
+        "accruedAmount": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "isReversalAdjustment": { "type": "boolean" },
+        "note": { "type": "string", "maxLength": 400 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "paymentId", "agreementId", "tenantId", "ratePercent", "eligibleRentCollected", "accruedAmount", "createdAt", "note", "syncedAt"]
+    },
+    "CommissionPayoutRecord": {
+      "title": "CommissionPayoutRecord",
+      "description": "Lawyer commission payout disbursement.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "lawyerContactId": { "type": "string", "maxLength": 128 },
+        "amount": { "type": "number" },
+        "payoutDate": { "type": "string", "maxLength": 20 },
+        "reference": { "type": "string", "maxLength": 120 },
+        "notes": { "type": "string", "maxLength": 600 },
+        "recordedBy": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "lawyerContactId", "amount", "payoutDate", "reference", "notes", "recordedBy", "createdAt", "syncedAt"]
+    },
+    "ExpenseRecord": {
+      "title": "ExpenseRecord",
+      "description": "Property expense ledger record.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "maxLength": 20 },
+        "amount": { "type": "number" },
+        "category": { "type": "string", "enum": ["Repairs", "Security", "Utilities", "Cleaning", "Legal & Admin", "Other"] },
+        "description": { "type": "string", "maxLength": 300 },
+        "vendor": { "type": "string", "maxLength": 120 },
+        "paymentMethod": { "type": "string", "maxLength": 40 },
+        "reference": { "type": "string", "maxLength": 120 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "date", "amount", "category", "description", "vendor", "createdAt", "syncedAt"]
+    },
+    "MaintenanceItemRecord": {
+      "title": "MaintenanceItemRecord",
+      "description": "Property repair or maintenance work order.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "unitId": { "type": "string", "maxLength": 128 },
+        "issue": { "type": "string", "maxLength": 300 },
+        "dateReported": { "type": "string", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["Open", "In Progress", "Resolved"] },
+        "assignedTo": { "type": "string", "maxLength": 120 },
+        "estimatedOrActualCost": { "type": "number" },
+        "resolutionDetails": { "type": "string", "maxLength": 600 },
+        "resolvedDate": { "type": "string", "maxLength": 20 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "issue", "dateReported", "status", "assignedTo", "estimatedOrActualCost", "syncedAt"]
+    },
+    "ContactRecord": {
+      "title": "ContactRecord",
+      "description": "Stakeholder contact directory entry (lawyer, receipt issuer, manager).",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["Property Manager", "Receipt Issuer", "Lawyer", "Additional Contact"] },
+        "phone": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 254 },
+        "isPrimaryReceiptIssuer": { "type": "boolean" },
+        "isBackupEscalation": { "type": "boolean" },
+        "smsEnabled": { "type": "boolean" },
+        "emailEnabled": { "type": "boolean" },
+        "receivesArrearsEscalations": { "type": "boolean" },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "name", "role", "phone", "email", "smsEnabled", "emailEnabled", "receivesArrearsEscalations", "syncedAt"]
+    },
+    "AuditLogRecord": {
+      "title": "AuditLogRecord",
+      "description": "Append-only operational audit trail record.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "timestamp": { "type": "string", "maxLength": 40 },
+        "actor": { "type": "string", "maxLength": 120 },
+        "entityType": { "type": "string", "maxLength": 40 },
+        "entityId": { "type": "string", "maxLength": 128 },
+        "action": { "type": "string", "maxLength": 120 },
+        "summary": { "type": "string", "maxLength": 1000 },
+        "previousValue": { "type": "string", "maxLength": 300 },
+        "newValue": { "type": "string", "maxLength": 300 },
+        "reason": { "type": "string", "maxLength": 400 },
+        "syncedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "timestamp", "actor", "entityType", "entityId", "action", "summary", "syncedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublicProfile" },
+      "description": "Non-PII user display profile."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Private user PII (email, role) strictly restricted to owner or admin."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminMarker" },
+      "description": "Trusted admin role assignment documents."
+    },
+    "/workspaces/{workspaceId}": {
+      "schema": { "$ref": "#/entities/Workspace" },
+      "description": "Property portfolio root document containing property profile and system settings."
+    },
+    "/workspaces/{workspaceId}/units/{unitId}": {
+      "schema": { "$ref": "#/entities/UnitRecord" },
+      "description": "Property units belonging to the workspace."
+    },
+    "/workspaces/{workspaceId}/tenants/{tenantId}": {
+      "schema": { "$ref": "#/entities/TenantRecord" },
+      "description": "Tenants belonging to the workspace (PII protected)."
+    },
+    "/workspaces/{workspaceId}/agreements/{agreementId}": {
+      "schema": { "$ref": "#/entities/AgreementRecord" },
+      "description": "Lease agreements belonging to the workspace."
+    },
+    "/workspaces/{workspaceId}/obligations/{obligationId}": {
+      "schema": { "$ref": "#/entities/ObligationRecord" },
+      "description": "Rent and security levy obligations belonging to the workspace."
+    },
+    "/workspaces/{workspaceId}/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/PaymentRecord" },
+      "description": "Payment receipts and allocations belonging to the workspace."
+    },
+    "/workspaces/{workspaceId}/receiptRequests/{receiptId}": {
+      "schema": { "$ref": "#/entities/ReceiptRequestRecord" },
+      "description": "Official receipt issuance queue belonging to the workspace."
+    },
+    "/workspaces/{workspaceId}/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/NotificationLogRecord" },
+      "description": "SMS and Email activity log records belonging to the workspace."
+    },
+    "/workspaces/{workspaceId}/smsTemplates/{templateId}": {
+      "schema": { "$ref": "#/entities/SmsTemplateRecord" },
+      "description": "Reusable SMS message templates belonging to the workspace."
+    },
+    "/workspaces/{workspaceId}/commitments/{commitmentId}": {
+      "schema": { "$ref": "#/entities/CommitmentRecord" },
+      "description": "Promise-to-pay commitments belonging to the workspace."
+    },
+    "/workspaces/{workspaceId}/commissions/{commissionId}": {
+      "schema": { "$ref": "#/entities/CommissionRecordDoc" },
+      "description": "Lawyer commission accruals belonging to the workspace."
+    },
+    "/workspaces/{workspaceId}/commissionPayouts/{payoutId}": {
+      "schema": { "$ref": "#/entities/CommissionPayoutRecord" },
+      "description": "Lawyer commission payouts belonging to the workspace."
+    },
+    "/workspaces/{workspaceId}/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/ExpenseRecord" },
+      "description": "Property operating expenses belonging to the workspace."
+    },
+    "/workspaces/{workspaceId}/maintenance/{maintenanceId}": {
+      "schema": { "$ref": "#/entities/MaintenanceItemRecord" },
+      "description": "Maintenance and repair logs belonging to the workspace."
+    },
+    "/workspaces/{workspaceId}/contacts/{contactId}": {
+      "schema": { "$ref": "#/entities/ContactRecord" },
+      "description": "Stakeholder directory contacts belonging to the workspace (PII protected)."
+    },
+    "/workspaces/{workspaceId}/auditLogs/{auditId}": {
+      "schema": { "$ref": "#/entities/AuditLogRecord" },
+      "description": "Append-only operational audit history belonging to the workspace."
+    }
+  }
+}

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { AlertTriangle, BellOff, BellRing, Calendar, FileText, RefreshCw, Send, X } from 'lucide-react';
+import { AlertTriangle, BellOff, BellRing, Calendar, FileText, Pencil, RefreshCw, Send, Trash2, X } from 'lucide-react';
 import { useRentalStore } from '../context/RentalStore';
 import type { BehaviourIndicator, RentCycle } from '../types/rental';
 import { formatDateShort, formatNaira, parseCurrencyValue } from '../utils/format';
 import { analyzeTenantArrears } from '../utils/multiYearArrears';
 import { CurrencyInput } from './CurrencyInput';
+import { DeleteTenantConfirmModal, EditTenantModal } from './PortfolioEditModals';
 import { StatusBadge } from './StatusBadge';
 
 export function TenantInspectorDrawer() {
@@ -40,6 +41,8 @@ export function TenantInspectorDrawer() {
   const [overrideReason, setOverrideReason] = useState('');
 
   const [pauseReason, setPauseReason] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   if (!selectedTenantIdForDrawer) return null;
 
@@ -244,6 +247,25 @@ export function TenantInspectorDrawer() {
                   <span>Renew Agreement</span>
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setShowEditModal(true)}
+                className="hig-btn-secondary"
+                aria-label={`Edit details for ${tenant.firstName} ${tenant.lastName}`}
+              >
+                <Pencil className="w-4 h-4" />
+                <span>Edit Details</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(true)}
+                className="hig-btn-secondary"
+                style={{ color: 'var(--status-danger-ink)' }}
+                aria-label={`Delete ${tenant.firstName} ${tenant.lastName}`}
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete</span>
+              </button>
             </div>
           </div>
 
@@ -604,6 +626,15 @@ export function TenantInspectorDrawer() {
           </div>
         </div>
       </div>
+
+      <EditTenantModal
+        tenantId={showEditModal ? tenant.id : null}
+        onClose={() => setShowEditModal(false)}
+      />
+      <DeleteTenantConfirmModal
+        tenantId={showDeleteModal ? tenant.id : null}
+        onClose={() => setShowDeleteModal(false)}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Send, X } from 'lucide-react';
+import { Pencil, Plus, Send, Trash2, X } from 'lucide-react';
 import { useRentalStore } from '../context/RentalStore';
 import type { RentCycle, UnitOccupancyStatus, UnitType } from '../types/rental';
 import { exportFilteredCsv } from '../utils/csvExport';
@@ -11,6 +11,12 @@ import {
   filterUnitsByQuery,
 } from '../utils/unitsTenantsSearch';
 import { CurrencyInput } from './CurrencyInput';
+import {
+  DeleteTenantConfirmModal,
+  DeleteUnitConfirmModal,
+  EditTenantModal,
+  EditUnitOccupantModal,
+} from './PortfolioEditModals';
 import { StatusBadge } from './StatusBadge';
 import { ExportCsvButton, SearchInput } from './TableToolbarControls';
 
@@ -70,6 +76,11 @@ export function UnitsTenantsView() {
   const [agLabel, setAgLabel] = useState('2026/2027 Annual Rent');
   const [agException, setAgException] = useState('');
   const [tenancyError, setTenancyError] = useState('');
+
+  const [editingTenantId, setEditingTenantId] = useState<string | null>(null);
+  const [deletingTenantId, setDeletingTenantId] = useState<string | null>(null);
+  const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
+  const [deletingUnitId, setDeletingUnitId] = useState<string | null>(null);
 
   const arrearsMap = useMemo(
     () => buildAllTenantArrearsMap(state.tenants, computedObligations),
@@ -511,6 +522,25 @@ export function UnitsTenantsView() {
                       >
                         Open Profile
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingTenantId(t.id)}
+                        className="hig-btn-secondary w-full"
+                        aria-label={`Edit ${t.firstName} ${t.lastName}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeletingTenantId(t.id)}
+                        className="hig-btn-secondary w-full"
+                        style={{ color: 'var(--status-danger-ink)' }}
+                        aria-label={`Delete ${t.firstName} ${t.lastName}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Delete</span>
+                      </button>
                     </div>
                   </div>
                 );
@@ -526,17 +556,17 @@ export function UnitsTenantsView() {
                     className="border-b hig-caption uppercase tracking-[0.03em]"
                     style={{ borderColor: 'var(--border-hairline)' }}
                   >
-                    <th className="py-3 px-5">Tenant &amp; Arrears Flags</th>
-                    <th className="py-3 px-4">Active Unit</th>
-                    <th className="py-3 px-4">Contact</th>
-                    <th className="py-3 px-4 max-w-[140px] whitespace-normal leading-snug">Behaviour Indicator</th>
-                    <th className="py-3 px-4 text-right">Annual Rent</th>
-                    <th className="py-3 px-4 text-right">Outstanding</th>
-                    <th className="py-3 px-5 text-right">Actions</th>
+                    <th className="py-3 pl-4 pr-2">Tenant &amp; Arrears Flags</th>
+                    <th className="py-3 px-2.5">Active Unit</th>
+                    <th className="py-3 px-2.5">Contact</th>
+                    <th className="py-3 px-2.5 max-w-[115px] whitespace-normal leading-snug">Behaviour</th>
+                    <th className="py-3 px-2.5 text-right">Rent</th>
+                    <th className="py-3 px-2.5 text-right">Outstanding</th>
+                    <th className="py-3 pl-2 pr-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody
-                  className="divide-y text-[0.875rem]"
+                  className="divide-y text-[0.8125rem]"
                   style={{ borderColor: 'var(--border-subtle)' }}
                 >
                   {filteredTenants.length === 0 ? (
@@ -572,11 +602,11 @@ export function UnitsTenantsView() {
                           key={t.id}
                           className="hover:bg-[var(--bg-hover)] transition-colors"
                         >
-                          <td className="py-3.5 px-5">
-                            <span className="font-medium text-[var(--ink-primary)] block">
+                          <td className="py-3.5 pl-4 pr-2 max-w-[185px]">
+                            <span className="font-medium text-[var(--ink-primary)] block break-words">
                               {t.firstName} {t.lastName}
                             </span>
-                            <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                            <div className="flex items-center gap-1 flex-wrap mt-1">
                               {prof?.isMultiYear && (
                                 <span
                                   className="px-2 py-0.5 rounded-lg text-[0.75rem] font-semibold"
@@ -599,10 +629,10 @@ export function UnitsTenantsView() {
                               {t.notificationsPaused && ' · Reminders Paused'}
                             </span>
                           </td>
-                          <td className="py-3.5 px-4">
+                          <td className="py-3.5 px-2.5 max-w-[155px]">
                             {unit ? (
                               <div>
-                                <span className="font-medium text-[var(--ink-primary)] block">
+                                <span className="font-medium text-[var(--ink-primary)] block break-words">
                                   {unit.code} · {unit.name}
                                 </span>
                                 <span className="hig-caption">{unit.type}</span>
@@ -611,19 +641,19 @@ export function UnitsTenantsView() {
                               <span className="hig-caption">No active lease</span>
                             )}
                           </td>
-                          <td className="py-3.5 px-4 text-[var(--ink-secondary)]">
-                            <span className="block font-mono-nums text-[0.8125rem]">{t.phone}</span>
-                            <span className="block hig-caption">{t.email}</span>
+                          <td className="py-3.5 px-2.5 text-[var(--ink-secondary)] max-w-[155px]">
+                            <span className="block font-mono-nums text-[0.78125rem] truncate">{t.phone}</span>
+                            <span className="block hig-caption truncate" title={t.email}>{t.email}</span>
                           </td>
-                          <td className="py-3.5 px-4 max-w-[140px] whitespace-normal">
+                          <td className="py-3.5 px-2.5 max-w-[115px] whitespace-normal">
                             <StatusBadge label={behaviour} wrap />
                           </td>
-                          <td className="py-3.5 px-4 text-right font-mono-nums text-[var(--ink-primary)]">
+                          <td className="py-3.5 px-2.5 text-right font-mono-nums text-[var(--ink-primary)] whitespace-nowrap">
                             {activeAg ? formatNaira(activeAg.agreedRent) : '—'}
                           </td>
-                          <td className="py-3.5 px-4 text-right">
+                          <td className="py-3.5 px-2.5 text-right max-w-[110px]">
                             <span
-                              className="font-mono-nums font-semibold block"
+                              className="font-mono-nums font-semibold block whitespace-nowrap"
                               style={{
                                 color: prof?.isMultiYear
                                   ? 'var(--status-danger-ink)'
@@ -635,27 +665,46 @@ export function UnitsTenantsView() {
                               {formatNaira(outstanding)}
                             </span>
                             {outstanding > 0 && prof && (
-                              <span className="text-[0.75rem] text-[var(--ink-tertiary)] font-mono-nums block">
+                              <span className="text-[0.72rem] leading-tight text-[var(--ink-tertiary)] font-mono-nums block">
                                 Rent {formatNaira(prof.unpaidRentAmount)}
                                 {prof.unpaidLevyAmount > 0 ? ` + Levy ${formatNaira(prof.unpaidLevyAmount)}` : ''}
                               </span>
                             )}
                           </td>
-                          <td className="py-3.5 px-5 text-right whitespace-nowrap">
-                            <div className="inline-flex items-center gap-2">
+                          <td className="py-3.5 pl-2 pr-4 text-right whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setEditingTenantId(t.id)}
+                                className="hig-touch-icon !min-w-[36px] !min-h-[36px]"
+                                aria-label={`Edit ${t.firstName} ${t.lastName}`}
+                                title={`Edit ${t.firstName} ${t.lastName}`}
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingTenantId(t.id)}
+                                className="hig-touch-icon !min-w-[36px] !min-h-[36px]"
+                                style={{ color: 'var(--status-danger-ink)' }}
+                                aria-label={`Delete ${t.firstName} ${t.lastName}`}
+                                title={`Delete ${t.firstName} ${t.lastName}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleOpenTenantComposer(t.id)}
-                                className="hig-btn-secondary !px-3"
+                                className="hig-btn-secondary !min-h-[38px] !px-2.5 !text-[0.8125rem] whitespace-nowrap"
                                 title={`Send SMS or Email to ${t.firstName} ${t.lastName}`}
                               >
-                                <Send className="w-3.5 h-3.5" />
+                                <Send className="w-3.5 h-3.5 shrink-0" />
                                 <span>Message</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setSelectedTenantIdForDrawer(t.id)}
-                                className="hig-btn-primary !px-3.5"
+                                className="hig-btn-primary !min-h-[38px] !px-3 !text-[0.8125rem] whitespace-nowrap"
                               >
                                 Open Profile
                               </button>
@@ -682,26 +731,26 @@ export function UnitsTenantsView() {
               </div>
             ) : (
               filteredUnits.map((u) => {
-                const activeAg = state.agreements.find(
-                  (a) => a.unitId === u.id && a.status === 'Active'
-                );
+                const activeAg =
+                  state.agreements.find((a) => a.unitId === u.id && a.status === 'Active') ||
+                  state.agreements.find((a) => a.unitId === u.id && a.status === 'Draft');
                 const tenant = activeAg
                   ? state.tenants.find((t) => t.id === activeAg.tenantId)
                   : undefined;
                 return (
                   <div key={u.id} className="hig-card p-4 space-y-3">
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span className="font-mono-nums font-semibold text-[1rem] text-[var(--ink-primary)] block">
+                      <div className="min-w-0">
+                        <span className="font-mono-nums font-semibold text-[1rem] text-[var(--ink-primary)] block truncate">
                           {u.code} · {u.name}
                         </span>
-                        <span className="hig-caption">
+                        <span className="hig-caption block truncate">
                           {u.type} · {u.floorOrWing}
                         </span>
                       </div>
                       <StatusBadge label={u.occupancyStatus} />
                     </div>
-                    <div className="flex items-center justify-between gap-3 pt-1">
+                    <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
                       {tenant ? (
                         <button
                           type="button"
@@ -726,6 +775,27 @@ export function UnitsTenantsView() {
                         <option value="Under Maintenance">Under Maintenance</option>
                       </select>
                     </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingUnitId(u.id)}
+                        className="hig-btn-secondary w-full"
+                        aria-label={`Edit unit and occupant for ${u.code}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                        <span>Edit Unit / Occupant</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeletingUnitId(u.id)}
+                        className="hig-btn-secondary w-full"
+                        style={{ color: 'var(--status-danger-ink)' }}
+                        aria-label={`Delete unit ${u.code}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Delete Unit</span>
+                      </button>
+                    </div>
                   </div>
                 );
               })
@@ -740,12 +810,12 @@ export function UnitsTenantsView() {
                     className="border-b hig-caption uppercase tracking-[0.03em]"
                     style={{ borderColor: 'var(--border-hairline)' }}
                   >
-                    <th className="py-3 px-5">Code &amp; Name</th>
-                    <th className="py-3 px-4">Unit Type</th>
-                    <th className="py-3 px-4">Location / Wing</th>
-                    <th className="py-3 px-4">Current Tenant</th>
-                    <th className="py-3 px-4">Occupancy Status</th>
-                    <th className="py-3 px-5 text-right">Change Status</th>
+                    <th className="py-3 pl-4 pr-3">Code &amp; Name</th>
+                    <th className="py-3 px-3">Unit Type</th>
+                    <th className="py-3 px-3">Location / Wing</th>
+                    <th className="py-3 px-3">Current Occupant</th>
+                    <th className="py-3 px-3">Occupancy Status</th>
+                    <th className="py-3 pl-3 pr-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody
@@ -767,28 +837,28 @@ export function UnitsTenantsView() {
                     </tr>
                   ) : (
                     filteredUnits.map((u) => {
-                      const activeAg = state.agreements.find(
-                        (a) => a.unitId === u.id && a.status === 'Active'
-                      );
+                      const activeAg =
+                        state.agreements.find((a) => a.unitId === u.id && a.status === 'Active') ||
+                        state.agreements.find((a) => a.unitId === u.id && a.status === 'Draft');
                       const tenant = activeAg
                         ? state.tenants.find((t) => t.id === activeAg.tenantId)
                         : undefined;
                       return (
                         <tr key={u.id} className="hover:bg-[var(--bg-hover)] transition-colors">
-                          <td className="py-3.5 px-5">
+                          <td className="py-3.5 pl-4 pr-3">
                             <span className="font-mono-nums font-semibold text-[var(--ink-primary)] mr-2">
                               {u.code}
                             </span>
                             <span className="font-medium text-[var(--ink-primary)]">{u.name}</span>
                           </td>
-                          <td className="py-3.5 px-4 text-[var(--ink-secondary)]">{u.type}</td>
-                          <td className="py-3.5 px-4 text-[var(--ink-tertiary)]">{u.floorOrWing}</td>
-                          <td className="py-3.5 px-4">
+                          <td className="py-3.5 px-3 text-[var(--ink-secondary)]">{u.type}</td>
+                          <td className="py-3.5 px-3 text-[var(--ink-tertiary)]">{u.floorOrWing}</td>
+                          <td className="py-3.5 px-3">
                             {tenant ? (
                               <button
                                 type="button"
                                 onClick={() => setSelectedTenantIdForDrawer(tenant.id)}
-                                className="font-medium text-[var(--ink-primary)] hover:underline min-h-[44px]"
+                                className="font-medium text-[var(--ink-primary)] hover:underline min-h-[44px] text-left"
                               >
                                 {tenant.firstName} {tenant.lastName}
                               </button>
@@ -796,22 +866,43 @@ export function UnitsTenantsView() {
                               <span className="hig-caption">Unoccupied</span>
                             )}
                           </td>
-                          <td className="py-3.5 px-4">
+                          <td className="py-3.5 px-3">
                             <StatusBadge label={u.occupancyStatus} />
                           </td>
-                          <td className="py-3.5 px-5 text-right">
-                            <select
-                              aria-label={`Change status for ${u.code}`}
-                              value={u.occupancyStatus}
-                              onChange={(e) =>
-                                updateUnitStatus(u.id, e.target.value as UnitOccupancyStatus)
-                              }
-                              className="hig-input !py-1.5"
-                            >
-                              <option value="Occupied">Occupied</option>
-                              <option value="Vacant">Vacant</option>
-                              <option value="Under Maintenance">Under Maintenance</option>
-                            </select>
+                          <td className="py-3.5 pl-3 pr-4 text-right whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1">
+                              <select
+                                aria-label={`Change status for ${u.code}`}
+                                value={u.occupancyStatus}
+                                onChange={(e) =>
+                                  updateUnitStatus(u.id, e.target.value as UnitOccupancyStatus)
+                                }
+                                className="hig-input !py-1.5"
+                              >
+                                <option value="Occupied">Occupied</option>
+                                <option value="Vacant">Vacant</option>
+                                <option value="Under Maintenance">Under Maintenance</option>
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => setEditingUnitId(u.id)}
+                                className="hig-touch-icon !min-w-[40px] !min-h-[40px]"
+                                aria-label={`Edit unit and occupant for ${u.code}`}
+                                title={`Edit ${u.code} & occupant`}
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingUnitId(u.id)}
+                                className="hig-touch-icon !min-w-[40px] !min-h-[40px]"
+                                style={{ color: 'var(--status-danger-ink)' }}
+                                aria-label={`Delete unit ${u.code}`}
+                                title={`Delete ${u.code}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1305,6 +1396,23 @@ export function UnitsTenantsView() {
           </div>
         </div>
       )}
+
+      <EditTenantModal
+        tenantId={editingTenantId}
+        onClose={() => setEditingTenantId(null)}
+      />
+      <DeleteTenantConfirmModal
+        tenantId={deletingTenantId}
+        onClose={() => setDeletingTenantId(null)}
+      />
+      <EditUnitOccupantModal
+        unitId={editingUnitId}
+        onClose={() => setEditingUnitId(null)}
+      />
+      <DeleteUnitConfirmModal
+        unitId={deletingUnitId}
+        onClose={() => setDeletingUnitId(null)}
+      />
     </div>
   );
 }
