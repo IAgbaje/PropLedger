@@ -1,0 +1,6 @@
+{
+  "name": "PropLedger — Rental Management System",
+  "description": "Internal property operations and rental management tool for rent collection, arrears tracking, payment allocation, receipt issuance, lawyer commissions, and maintenance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
