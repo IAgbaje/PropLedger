@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, Mail, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Mail, Plus, X } from 'lucide-react';
 import { useIntegrations } from '../context/IntegrationContext';
 import { useRentalStore } from '../context/RentalStore';
 import type { PaymentAllocation, PaymentMethod } from '../types/rental';
 import { sendEmailViaGmail, sendEmailViaSmtp } from '../utils/emailClient';
 import { formatDateShort, formatNaira, parseCurrencyValue } from '../utils/format';
+import { deriveRentYearLabel, extractObligationCycleLabel } from '../utils/paymentReconciliation';
 import { checkDuplicateBankReference, suggestPaymentAllocations } from '../utils/rentalEngine';
+import { AddCycleObligationInline } from './AddCycleObligationInline';
 import { CurrencyInput } from './CurrencyInput';
 import { StatusBadge } from './StatusBadge';
+
+const RENT_YEAR_PRESETS = ['2024', '2025', '2026', '2027', '2028', '2025/2026', '2026/2027'];
 
 export function RecordPaymentModal() {
   const {
@@ -30,10 +34,14 @@ export function RecordPaymentModal() {
   const [agreementId, setAgreementId] = useState<string>('');
   const [amountStr, setAmountStr] = useState<string>('');
   const [dateReceived, setDateReceived] = useState<string>(state.referenceDate);
+  const [timeReceived, setTimeReceived] = useState<string>('');
   const [method, setMethod] = useState<PaymentMethod>('Bank Transfer');
   const [bankReference, setBankReference] = useState<string>('');
+  const [rentYearMode, setRentYearMode] = useState<string>('auto');
+  const [customRentYear, setCustomRentYear] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [allocMap, setAllocMap] = useState<Record<string, number>>({});
+  const [showAddCycle, setShowAddCycle] = useState<boolean>(false);
   const [sendEmailImmediately, setSendEmailImmediately] = useState<boolean>(
     Boolean(isGmailConnected || status?.smtpConfigured)
   );
@@ -52,9 +60,13 @@ export function RecordPaymentModal() {
       '';
     setTenantId(defaultTenant);
     setDateReceived(state.referenceDate);
+    setTimeReceived('');
     setMethod('Bank Transfer');
     setBankReference('');
+    setRentYearMode('auto');
+    setCustomRentYear('');
     setNotes('');
+    setShowAddCycle(false);
     setSendEmailImmediately(Boolean(isGmailConnected || status?.smtpConfigured));
     setSimulateFailure(false);
     setErrorMsg('');
@@ -85,6 +97,12 @@ export function RecordPaymentModal() {
       .sort((a, b) => a.obligation.dueDate.localeCompare(b.obligation.dueDate));
   }, [computedObligations, tenantId]);
 
+  const settledObligations = useMemo(() => {
+    return computedObligations
+      .filter((c) => c.obligation.tenantId === tenantId && c.amountOutstanding <= 0)
+      .sort((a, b) => a.obligation.dueDate.localeCompare(b.obligation.dueDate));
+  }, [computedObligations, tenantId]);
+
   useEffect(() => {
     const totalOpen = openObligations.reduce((s, c) => s + c.amountOutstanding, 0);
     if (totalOpen > 0) {
@@ -109,12 +127,33 @@ export function RecordPaymentModal() {
 
   if (!openRecordPaymentModal) return null;
 
+  const selectedAgreement = state.agreements.find((a) => a.id === agreementId);
   const parsedAmount = parseCurrencyValue(amountStr);
   const allocatedTotal = Object.values(allocMap).reduce((s, v) => s + (Number(v) || 0), 0);
   const unappliedAmount = Math.max(0, Math.round((parsedAmount - allocatedTotal) * 100) / 100);
   const totalOpenBalance = openObligations.reduce((s, c) => s + c.amountOutstanding, 0);
   const remainingAfterPayment = Math.max(0, totalOpenBalance - allocatedTotal);
   const isDuplicateRef = checkDuplicateBankReference(bankReference, state.payments);
+
+  const currentAllocations: PaymentAllocation[] = Object.entries(allocMap)
+    .filter(([, amt]) => amt > 0)
+    .map(([obligationId, amount]) => ({ obligationId, amount }));
+  const autoDerivedYear = deriveRentYearLabel(currentAllocations, state.obligations, dateReceived);
+  const resolvedRentYear =
+    rentYearMode === 'auto'
+      ? autoDerivedYear
+      : rentYearMode === 'custom'
+      ? customRentYear.trim() || autoDerivedYear
+      : rentYearMode;
+
+  const suggestedNewYear = (() => {
+    const allYears = computedObligations
+      .filter((c) => c.obligation.tenantId === tenantId)
+      .map((c) => Number(extractObligationCycleLabel(c.obligation.rentalPeriodLabel, c.obligation.dueDate).slice(0, 4)))
+      .filter((y) => Number.isFinite(y));
+    const maxYr = allYears.length > 0 ? Math.max(...allYears) : 2026;
+    return String(Math.max(2026, maxYr + 1));
+  })();
 
   const handleAutoAllocate = () => {
     const suggested = suggestPaymentAllocations(
@@ -144,8 +183,10 @@ export function RecordPaymentModal() {
       agreementId,
       amount: parsedAmount,
       dateReceived,
+      timeReceived: timeReceived || undefined,
       method,
       bankReference,
+      rentYearCovered: resolvedRentYear,
       allocations,
       notes,
       simulateNotificationFailure: simulateFailure,
@@ -344,7 +385,7 @@ export function RecordPaymentModal() {
 
             <div>
               <label htmlFor="pay-date" className="block hig-footnote mb-1.5">
-                Date Received
+                Date Hit Account
               </label>
               <input
                 id="pay-date"
@@ -356,6 +397,23 @@ export function RecordPaymentModal() {
               />
             </div>
 
+            <div>
+              <label htmlFor="pay-time" className="block hig-footnote mb-1.5 flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5" />
+                <span>Time Hit Account</span>
+              </label>
+              <input
+                id="pay-time"
+                type="time"
+                step={1}
+                value={timeReceived}
+                onChange={(e) => setTimeReceived(e.target.value)}
+                className="hig-input w-full font-mono-nums"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label htmlFor="pay-method" className="block hig-footnote mb-1.5">
                 Payment Method
@@ -372,32 +430,63 @@ export function RecordPaymentModal() {
                 <option value="Cheque">Cheque</option>
               </select>
             </div>
+
+            <div>
+              <label htmlFor="pay-ref" className="block hig-footnote mb-1.5">
+                Bank / Payment Reference
+              </label>
+              <input
+                id="pay-ref"
+                type="text"
+                value={bankReference}
+                onChange={(e) => setBankReference(e.target.value)}
+                placeholder="e.g. GTB-NIP-4410928"
+                className="hig-input w-full font-mono-nums"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="pay-year" className="block hig-footnote mb-1.5">
+                Rent Year Paid For
+              </label>
+              <select
+                id="pay-year"
+                value={rentYearMode}
+                onChange={(e) => setRentYearMode(e.target.value)}
+                className="hig-input w-full font-mono-nums"
+              >
+                <option value="auto">Auto ({autoDerivedYear})</option>
+                {RENT_YEAR_PRESETS.map((yr) => (
+                  <option key={yr} value={yr}>
+                    {yr} Cycle
+                  </option>
+                ))}
+                <option value="custom">Custom Label…</option>
+              </select>
+              {rentYearMode === 'custom' && (
+                <input
+                  type="text"
+                  value={customRentYear}
+                  onChange={(e) => setCustomRentYear(e.target.value)}
+                  placeholder="e.g. 2026 & 2027"
+                  aria-label="Custom rent year paid for"
+                  className="hig-input w-full mt-2 font-mono-nums"
+                />
+              )}
+            </div>
           </div>
 
-          <div>
-            <label htmlFor="pay-ref" className="block hig-footnote mb-1.5">
-              Bank / Payment Reference
-            </label>
-            <input
-              id="pay-ref"
-              type="text"
-              value={bankReference}
-              onChange={(e) => setBankReference(e.target.value)}
-              placeholder="e.g. GTB-NIP-4410928"
-              className="hig-input w-full font-mono-nums"
-            />
-            {isDuplicateRef && (
-              <p
-                className="mt-1.5 hig-caption flex items-center gap-1.5"
-                style={{ color: 'var(--status-warning-ink)' }}
-              >
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>
-                  Warning: Another confirmed payment already uses reference "{bankReference}". Flagged for review.
-                </span>
-              </p>
-            )}
-          </div>
+          {isDuplicateRef && (
+            <p
+              className="hig-caption flex items-center gap-1.5"
+              style={{ color: 'var(--status-warning-ink)' }}
+            >
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                Warning: Another confirmed payment already uses reference &quot;{bankReference}&quot;. Flagged for review.
+              </span>
+            </p>
+          )}
 
           {/* Obligation Allocation Section */}
           <div className="hig-card-inset p-4 space-y-3">
@@ -407,21 +496,54 @@ export function RecordPaymentModal() {
                   Obligation Allocation
                 </h4>
                 <p className="hig-caption">
-                  Allocate confirmed funds across rent and security levy obligations.
+                  Allocate confirmed funds across rent cycles (e.g. 2025, 2026, or advance 2027) and security levies.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleAutoAllocate}
-                className="hig-btn-secondary whitespace-nowrap"
-              >
-                Auto-Allocate ({state.settings.defaultAllocationOrder === 'Manual Only' ? 'Oldest First' : state.settings.defaultAllocationOrder})
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddCycle((v) => !v)}
+                  className="hig-btn-secondary whitespace-nowrap"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Rent Year</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAutoAllocate}
+                  className="hig-btn-secondary whitespace-nowrap"
+                >
+                  Auto-Allocate
+                </button>
+              </div>
             </div>
+
+            {settledObligations.length > 0 && (
+              <p className="hig-caption tabular-nums">
+                Already settled for this tenant:{' '}
+                <span className="font-medium text-[var(--status-success-ink)]">
+                  {settledObligations.map((c) => c.obligation.rentalPeriodLabel).join(', ')}
+                </span>
+              </p>
+            )}
+
+            {showAddCycle && (
+              <AddCycleObligationInline
+                agreement={selectedAgreement}
+                suggestedYear={suggestedNewYear}
+                onCancel={() => setShowAddCycle(false)}
+                onCreated={(_, yr) => {
+                  setShowAddCycle(false);
+                  if (yr && RENT_YEAR_PRESETS.includes(yr)) {
+                    setRentYearMode(yr);
+                  }
+                }}
+              />
+            )}
 
             {openObligations.length === 0 ? (
               <p className="hig-subhead py-2">
-                No unpaid obligations for this tenant. Full amount will be recorded as Unapplied Credit.
+                No unpaid obligations for this tenant. Add a rent year cycle above (e.g. 2026 or 2027) or save as Unapplied Credit.
               </p>
             ) : (
               <div className="space-y-2">
@@ -510,14 +632,14 @@ export function RecordPaymentModal() {
 
           <div>
             <label htmlFor="pay-notes" className="block hig-footnote mb-1.5">
-              Notes
+              Bank Statement Description / Notes
             </label>
             <textarea
               id="pay-notes"
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optional narration, bank account confirmed, or tranche details..."
+              placeholder="Optional bank transfer narration, sender details, or tranche notes..."
               className="hig-input w-full min-h-[72px]"
             />
           </div>

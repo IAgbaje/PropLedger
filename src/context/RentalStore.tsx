@@ -59,6 +59,15 @@ import {
   type TenantEditPayload,
   type UnitEditAndOccupantPayload,
 } from '../utils/portfolioEdits';
+import {
+  applyCreateCycleObligation,
+  applyPaymentEdit,
+  deriveRentYearLabel,
+  normalizeTimeReceived,
+  syncTouchedObligationsSettlement,
+  type CreateCycleObligationPayload,
+  type PaymentEditPayload,
+} from '../utils/paymentReconciliation';
 import { useIntegrations } from './IntegrationContext';
 
 const STORAGE_KEY = 'propledger_rms_state_v2';
@@ -158,6 +167,8 @@ interface RentalContextValue {
   setOpenRecordPaymentModal: (open: boolean) => void;
   preselectedTenantForPayment: string | null;
   setPreselectedTenantForPayment: (tenantId: string | null) => void;
+  editingPaymentId: string | null;
+  setEditingPaymentId: (paymentId: string | null) => void;
   // Composer modal helpers
   composerOpen: boolean;
   setComposerOpen: (open: boolean) => void;
@@ -239,8 +250,10 @@ interface RentalContextValue {
     agreementId: string;
     amount: number;
     dateReceived: string;
+    timeReceived?: string;
     method: PaymentMethod;
     bankReference: string;
+    rentYearCovered?: string;
     allocations: PaymentAllocation[];
     notes: string;
     simulateNotificationFailure?: boolean;
@@ -251,6 +264,13 @@ interface RentalContextValue {
     error?: string;
     duplicateWarning?: boolean;
   };
+  editPayment: (
+    paymentId: string,
+    payload: PaymentEditPayload
+  ) => { ok: boolean; error?: string; duplicateWarning?: boolean };
+  createCycleObligation: (
+    payload: CreateCycleObligationPayload
+  ) => { ok: boolean; error?: string; createdObligationIds?: string[]; rentObligationId?: string };
   reversePayment: (paymentId: string, reason: string) => { ok: boolean; error?: string };
   acknowledgeReceipt: (receiptId: string, note: string) => void;
   issueReceipt: (
@@ -356,6 +376,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
   const [selectedTenantIdForDrawer, setSelectedTenantIdForDrawer] = useState<string | null>(null);
   const [openRecordPaymentModal, setOpenRecordPaymentModal] = useState(false);
   const [preselectedTenantForPayment, setPreselectedTenantForPayment] = useState<string | null>(null);
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerPrefill, setComposerPrefill] = useState<ComposerPrefill | null>(null);
   const [calendarSyncOpen, setCalendarSyncOpen] = useState(false);
@@ -1057,6 +1078,10 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
     if (input.amount <= 0) {
       return { ok: false, error: 'Payment amount must be greater than ₦0.' };
     }
+    const timeCheck = normalizeTimeReceived(input.timeReceived);
+    if (!timeCheck.ok) {
+      return { ok: false, error: timeCheck.error };
+    }
     const allocatedTotal = input.allocations.reduce((s, a) => s + a.amount, 0);
     if (allocatedTotal > input.amount + 0.01) {
       return { ok: false, error: 'Allocated total cannot exceed payment amount.' };
@@ -1072,6 +1097,10 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
     const payId = uid('pay');
     const sysRef = `PAY-2026-${String(state.payments.length + 45).padStart(4, '0')}`;
     const unappliedAmount = Math.max(0, Math.round((input.amount - allocatedTotal) * 100) / 100);
+    const cleanAllocations = input.allocations.filter((a) => a.amount > 0);
+    const resolvedRentYear =
+      input.rentYearCovered?.trim() ||
+      deriveRentYearLabel(cleanAllocations, state.obligations, input.dateReceived);
 
     const newPayment: Payment = {
       id: payId,
@@ -1081,12 +1110,14 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       unitId: agreement.unitId,
       amount: input.amount,
       dateReceived: input.dateReceived,
+      ...(timeCheck.value ? { timeReceived: timeCheck.value } : {}),
       dateRecorded: new Date().toISOString(),
       method: input.method,
       bankReference: input.bankReference.trim(),
       status: 'Confirmed',
-      allocations: input.allocations.filter((a) => a.amount > 0),
+      allocations: cleanAllocations,
       unappliedAmount,
+      rentYearCovered: resolvedRentYear,
       notes: input.notes.trim(),
       recordedBy: state.property.managerName,
       duplicateFlag: isDuplicate,
@@ -1101,7 +1132,8 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       newPayment.allocations.some((a) => a.obligationId === o.id)
     );
     const periodCovered =
-      allocatedObligations.map((o) => o.rentalPeriodLabel).join(', ') || 'Unapplied Credit';
+      allocatedObligations.map((o) => o.rentalPeriodLabel).join(', ') ||
+      (resolvedRentYear ? `${resolvedRentYear} Unapplied Credit` : 'Unapplied Credit');
     const securityLevyIncluded = newPayment.allocations.reduce((sum, a) => {
       const ob = state.obligations.find((o) => o.id === a.obligationId);
       return ob?.chargeType === 'Security Levy' ? sum + a.amount : sum;
@@ -1140,6 +1172,10 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       slaDeadlineAt: slaDate,
     };
 
+    const paidDateTimeLabel = timeCheck.value
+      ? `${input.dateReceived} at ${timeCheck.value}`
+      : input.dateReceived;
+
     // Notifications to Receipt Issuer (Email + SMS tracked independently)
     const newNotifications: NotificationRecord[] = [];
     const emailProviderLabel =
@@ -1169,7 +1205,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
             : 'Delivered',
           deliveryProvider: emailProviderLabel,
           subject: `Receipt Request: ${sysRef} — ${tenant.firstName} ${tenant.lastName} (${unit?.code})`,
-          messageBody: `Dear ${primaryIssuer.name.split(' ')[0]},\n\nConfirmed payment ${sysRef} of ₦${input.amount.toLocaleString()} was received on ${input.dateReceived} from ${tenant.firstName} ${tenant.lastName} (${unit?.name} · ${unit?.type}) covering ${periodCovered}. Security levy included: ₦${securityLevyIncluded.toLocaleString()}. Remaining balance: ₦${remainingForAgreement.toLocaleString()}.\n\nPlease issue the official receipt within ${state.settings.receiptSlaHours} hours.\n\nRegards,\n${state.property.name}`,
+          messageBody: `Dear ${primaryIssuer.name.split(' ')[0]},\n\nConfirmed payment ${sysRef} of ₦${input.amount.toLocaleString()} was received on ${paidDateTimeLabel} from ${tenant.firstName} ${tenant.lastName} (${unit?.name} · ${unit?.type}) covering ${periodCovered} (Rent Year: ${resolvedRentYear}). Security levy included: ₦${securityLevyIncluded.toLocaleString()}. Remaining balance: ₦${remainingForAgreement.toLocaleString()}.\n\nPlease issue the official receipt within ${state.settings.receiptSlaHours} hours.\n\nRegards,\n${state.property.name}`,
           scheduledAt: new Date().toISOString(),
           attemptedAt: input.simulateNotificationFailure ? new Date().toISOString() : undefined,
           retryCount: 0,
@@ -1191,7 +1227,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
           channel: 'SMS',
           status: input.simulateNotificationFailure ? 'Retry Pending' : 'Sent',
           deliveryProvider: 'Ledger Only',
-          messageBody: `Receipt Request ${sysRef}: ${tenant.firstName} ${tenant.lastName} (${unit?.code}) paid ₦${input.amount.toLocaleString()} on ${input.dateReceived}. Bal: ₦${remainingForAgreement.toLocaleString()}. Please issue official receipt.`,
+          messageBody: `Receipt Request ${sysRef}: ${tenant.firstName} ${tenant.lastName} (${unit?.code}) paid ₦${input.amount.toLocaleString()} on ${paidDateTimeLabel} (${resolvedRentYear}). Bal: ₦${remainingForAgreement.toLocaleString()}. Please issue official receipt.`,
           scheduledAt: new Date().toISOString(),
           attemptedAt: new Date().toISOString(),
           retryCount: input.simulateNotificationFailure ? 1 : 0,
@@ -1225,7 +1261,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
           : 'Delivered',
         deliveryProvider: emailProviderLabel,
         subject: `Payment Confirmation (${sysRef}) — ${state.property.name}`,
-        messageBody: `Dear ${tenant.firstName},\n\nThank you. We confirm receipt of your payment of ₦${input.amount.toLocaleString()} (${input.method}) on ${input.dateReceived} for ${unit?.name} (${periodCovered}).\n\nRemaining balance on this tenancy: ₦${remainingForAgreement.toLocaleString()}.\nYour official receipt request (${rcpId}) has been routed for issuance.\n\nWarm regards,\n${state.property.managerName}\n${state.property.name}`,
+        messageBody: `Dear ${tenant.firstName},\n\nThank you. We confirm receipt of your payment of ₦${input.amount.toLocaleString()} (${input.method}) on ${paidDateTimeLabel} for ${unit?.name} (${periodCovered}).\n\nRemaining balance on this tenancy: ₦${remainingForAgreement.toLocaleString()}.\nYour official receipt request (${rcpId}) has been routed for issuance.\n\nWarm regards,\n${state.property.managerName}\n${state.property.name}`,
         scheduledAt: new Date().toISOString(),
         attemptedAt: input.simulateNotificationFailure ? new Date().toISOString() : undefined,
         retryCount: 0,
@@ -1256,9 +1292,18 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       });
     }
 
+    const touchedIds = new Set(newPayment.allocations.map((a) => a.obligationId));
+
     setState((prev) => ({
       ...prev,
       payments: [newPayment, ...prev.payments],
+      obligations: syncTouchedObligationsSettlement(
+        prev.obligations,
+        touchedIds,
+        [newPayment, ...prev.payments],
+        prev.referenceDate,
+        prev.settings.gracePeriodDays
+      ),
       receiptRequests: [newReceipt, ...prev.receiptRequests],
       notifications: [...newNotifications, ...prev.notifications],
       commissions: [...newCommissions, ...prev.commissions],
@@ -1268,9 +1313,9 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
           'Payment',
           payId,
           'Payment Recorded',
-          `Recorded ${sysRef} (₦${input.amount.toLocaleString()}) for ${tenant.firstName} ${tenant.lastName} (${unit?.code}). Created receipt request ${rcpId}.`,
+          `Recorded ${sysRef} (₦${input.amount.toLocaleString()}) on ${paidDateTimeLabel} for ${tenant.firstName} ${tenant.lastName} (${unit?.code}) covering ${resolvedRentYear}. Created receipt request ${rcpId}.`,
           {
-            newValue: `₦${input.amount.toLocaleString()} · ${input.method}${input.bankReference ? ` · ${input.bankReference}` : ''}`,
+            newValue: `₦${input.amount.toLocaleString()} · ${input.method}${input.bankReference ? ` · ${input.bankReference}` : ''} · ${resolvedRentYear}`,
           }
         ),
         ...prev.auditLogs,
@@ -1282,6 +1327,28 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       paymentId: payId,
       createdNotifications: newNotifications,
       duplicateWarning: isDuplicate,
+    };
+  };
+
+  const editPayment: RentalContextValue['editPayment'] = (paymentId, payload) => {
+    const res = applyPaymentEdit(stateRef.current, paymentId, payload, uid);
+    if (!res.ok) {
+      return { ok: false, error: res.error };
+    }
+    setState(res.nextState);
+    return { ok: true, duplicateWarning: res.duplicateWarning };
+  };
+
+  const createCycleObligation: RentalContextValue['createCycleObligation'] = (payload) => {
+    const res = applyCreateCycleObligation(stateRef.current, payload, uid);
+    if (!res.ok) {
+      return { ok: false, error: res.error };
+    }
+    setState(res.nextState);
+    return {
+      ok: true,
+      createdObligationIds: res.createdObligationIds,
+      rentObligationId: res.rentObligationId,
     };
   };
 
@@ -2527,6 +2594,8 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
         setOpenRecordPaymentModal,
         preselectedTenantForPayment,
         setPreselectedTenantForPayment,
+        editingPaymentId,
+        setEditingPaymentId,
         composerOpen,
         setComposerOpen,
         composerPrefill,
@@ -2550,6 +2619,8 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
         renewAgreement,
         toggleObligationReview,
         recordPayment,
+        editPayment,
+        createCycleObligation,
         reversePayment,
         acknowledgeReceipt,
         issueReceipt,

@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Pencil, RotateCcw } from 'lucide-react';
 import { useRentalStore } from '../context/RentalStore';
 import { exportFilteredCsv } from '../utils/csvExport';
-import { formatDateShort, formatNaira } from '../utils/format';
+import { formatNaira, formatPaymentTimestamp } from '../utils/format';
+import { getEffectivePaymentRentYear } from '../utils/paymentReconciliation';
 import { StatusBadge } from './StatusBadge';
 import { ExportCsvButton, SearchInput } from './TableToolbarControls';
 
@@ -13,14 +14,27 @@ export function PaymentsView() {
     setOpenRecordPaymentModal,
     setPreselectedTenantForPayment,
     setSelectedTenantIdForDrawer,
+    setEditingPaymentId,
     reversePayment,
   } = useRentalStore();
 
   const [statusFilter, setStatusFilter] = useState<'All' | 'Confirmed' | 'Reversed' | 'Duplicate'>('All');
+  const [yearFilter, setYearFilter] = useState<string>('All');
   const [search, setSearch] = useState('');
   const [reversingPaymentId, setReversingPaymentId] = useState<string | null>(null);
   const [reversalReason, setReversalReason] = useState('');
   const [reversalError, setReversalError] = useState('');
+
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    for (const p of state.payments) {
+      const label = getEffectivePaymentRentYear(p, state.obligations);
+      for (const token of label.split(',').map((s) => s.trim())) {
+        if (token) years.add(token);
+      }
+    }
+    return Array.from(years).sort();
+  }, [state.payments, state.obligations]);
 
   const filteredPayments = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -29,15 +43,21 @@ export function PaymentsView() {
       if (statusFilter === 'Reversed' && p.status !== 'Reversed') return false;
       if (statusFilter === 'Duplicate' && !p.duplicateFlag) return false;
 
+      const rentYear = getEffectivePaymentRentYear(p, state.obligations);
+      if (yearFilter !== 'All') {
+        const tokens = rentYear.split(',').map((s) => s.trim());
+        if (!tokens.includes(yearFilter)) return false;
+      }
+
       if (q) {
         const tenant = state.tenants.find((t) => t.id === p.tenantId);
         const unit = state.units.find((u) => u.id === p.unitId);
-        const text = `${p.systemRef} ${p.bankReference} ${p.method} ${tenant?.firstName} ${tenant?.lastName} ${unit?.code} ${unit?.name}`.toLowerCase();
+        const text = `${p.systemRef} ${p.bankReference} ${p.method} ${rentYear} ${p.notes} ${p.timeReceived || ''} ${tenant?.firstName} ${tenant?.lastName} ${unit?.code} ${unit?.name}`.toLowerCase();
         if (!text.includes(q)) return false;
       }
       return true;
     });
-  }, [state.payments, state.tenants, state.units, statusFilter, search]);
+  }, [state.payments, state.tenants, state.units, state.obligations, statusFilter, yearFilter, search]);
 
   const handleExportPaymentsCsv = () => {
     exportFilteredCsv(
@@ -45,12 +65,15 @@ export function PaymentsView() {
       [
         'System Ref',
         'Date Received',
+        'Time Received',
+        'Rent Year Covered',
         'Tenant Name',
         'Unit Code',
         'Unit Name',
         'Payment Method',
         'Bank Reference',
         'Allocated Periods',
+        'Bank Description / Notes',
         'Receipt Status',
         'Official Receipt No',
         'Amount (NGN)',
@@ -62,6 +85,7 @@ export function PaymentsView() {
         const tenant = state.tenants.find((t) => t.id === p.tenantId);
         const unit = state.units.find((u) => u.id === p.unitId);
         const receipt = effectiveReceipts.find((r) => r.paymentId === p.id);
+        const rentYear = getEffectivePaymentRentYear(p, state.obligations);
         const allocatedDesc =
           p.allocations.length === 0
             ? 'Unapplied credit'
@@ -74,12 +98,15 @@ export function PaymentsView() {
         return [
           p.systemRef,
           p.dateReceived,
+          p.timeReceived || '',
+          rentYear,
           tenant ? `${tenant.firstName} ${tenant.lastName}` : '',
           unit?.code || '',
           unit?.name || '',
           p.method,
           p.bankReference || '',
           allocatedDesc,
+          p.notes || '',
           receipt?.status || '',
           receipt?.officialReceiptNumber || '',
           p.amount,
@@ -118,7 +145,7 @@ export function PaymentsView() {
             <span className="font-mono-nums font-semibold text-[var(--ink-primary)]">
               {formatNaira(totalConfirmed)}
             </span>{' '}
-            · Original records are never deleted; errors use auditable reversals.
+            · Edit payment dates, bank timestamps, and rent year cycles with full audit trail.
           </p>
         </div>
 
@@ -135,27 +162,43 @@ export function PaymentsView() {
       </div>
 
       {/* Filter & Search */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="hig-segmented w-fit">
-          {(['All', 'Confirmed', 'Reversed', 'Duplicate'] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              data-active={statusFilter === tab}
-              onClick={() => setStatusFilter(tab)}
-              className="hig-segmented-item"
-            >
-              {tab}
-            </button>
-          ))}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="hig-segmented w-fit">
+            {(['All', 'Confirmed', 'Reversed', 'Duplicate'] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                data-active={statusFilter === tab}
+                onClick={() => setStatusFilter(tab)}
+                className="hig-segmented-item"
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          <select
+            value={yearFilter}
+            onChange={(e) => setYearFilter(e.target.value)}
+            aria-label="Filter payments by rent year"
+            className="hig-input min-h-[44px] w-auto font-mono-nums text-[0.8125rem]"
+          >
+            <option value="All">All Rent Years</option>
+            {availableYears.map((yr) => (
+              <option key={yr} value={yr}>
+                Cycle: {yr}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Search unit number, tenant name, or ref..."
-            ariaLabel="Search payments by unit number, tenant name, or reference"
+            placeholder="Search tenant, unit, ref, year..."
+            ariaLabel="Search payments by unit number, tenant name, reference, rent year, or description"
             className="w-full sm:w-72"
           />
           <ExportCsvButton
@@ -177,6 +220,7 @@ export function PaymentsView() {
             const tenant = state.tenants.find((t) => t.id === p.tenantId);
             const unit = state.units.find((u) => u.id === p.unitId);
             const receipt = effectiveReceipts.find((r) => r.paymentId === p.id);
+            const rentYear = getEffectivePaymentRentYear(p, state.obligations);
 
             return (
               <div key={p.id} className="hig-card p-4 space-y-3">
@@ -197,15 +241,20 @@ export function PaymentsView() {
                     <span className="font-mono-nums font-bold text-[1rem] text-[var(--ink-primary)] block">
                       {formatNaira(p.amount)}
                     </span>
-                    <span className="hig-caption tabular-nums">{formatDateShort(p.dateReceived)}</span>
+                    <span className="hig-caption tabular-nums block">
+                      {formatPaymentTimestamp(p.dateReceived, p.timeReceived)}
+                    </span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <StatusBadge label={p.status} />
                   {receipt && <StatusBadge label={receipt.status} />}
+                  <span className="hig-caption font-medium text-[var(--ink-primary)]">
+                    Rent Year: {rentYear}
+                  </span>
                   <span className="hig-caption">
-                    {p.method} {p.bankReference ? `· ${p.bankReference}` : ''}
+                    · {p.method} {p.bankReference ? `· ${p.bankReference}` : ''}
                   </span>
                 </div>
 
@@ -222,21 +271,34 @@ export function PaymentsView() {
                       );
                     })
                   )}
+                  {p.notes && (
+                    <p className="pt-1 text-[var(--ink-tertiary)] line-clamp-2">{p.notes}</p>
+                  )}
                 </div>
 
                 {p.status === 'Confirmed' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReversingPaymentId(p.id);
-                      setReversalReason('');
-                      setReversalError('');
-                    }}
-                    className="hig-btn-secondary w-full !text-[var(--status-danger-ink)]"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    <span>Reverse</span>
-                  </button>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setEditingPaymentId(p.id)}
+                      className="hig-btn-secondary flex-1"
+                    >
+                      <Pencil className="w-4 h-4" />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReversingPaymentId(p.id);
+                        setReversalReason('');
+                        setReversalError('');
+                      }}
+                      className="hig-btn-secondary flex-1 !text-[var(--status-danger-ink)]"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      <span>Reverse</span>
+                    </button>
+                  </div>
                 )}
               </div>
             );
@@ -253,14 +315,13 @@ export function PaymentsView() {
                 className="border-b hig-caption uppercase tracking-[0.03em]"
                 style={{ borderColor: 'var(--border-hairline)' }}
               >
-                <th className="py-3 px-5">System Ref &amp; Date</th>
-                <th className="py-3 px-4">Tenant &amp; Unit</th>
-                <th className="py-3 px-4">Method &amp; Bank Ref</th>
-                <th className="py-3 px-4">Allocated To</th>
-                <th className="py-3 px-4">Receipt Status</th>
-                <th className="py-3 px-4 text-right">Amount</th>
-                <th className="py-3 px-4 text-right">Unapplied</th>
-                <th className="py-3 px-5 text-right">Status / Action</th>
+                <th className="py-3 px-3">Ref &amp; Date/Time</th>
+                <th className="py-3 px-2.5">Tenant &amp; Unit</th>
+                <th className="py-3 px-2.5">Method &amp; Bank Ref</th>
+                <th className="py-3 px-2.5">Rent Year &amp; Allocated To</th>
+                <th className="py-3 px-2.5">Receipt</th>
+                <th className="py-3 px-2.5 text-right">Amount</th>
+                <th className="py-3 px-3 text-right">Status / Action</th>
               </tr>
             </thead>
             <tbody
@@ -269,7 +330,7 @@ export function PaymentsView() {
             >
               {filteredPayments.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center hig-footnote">
+                  <td colSpan={7} className="py-10 text-center hig-footnote">
                     No payment records match your filter.
                   </td>
                 </tr>
@@ -278,39 +339,45 @@ export function PaymentsView() {
                   const tenant = state.tenants.find((t) => t.id === p.tenantId);
                   const unit = state.units.find((u) => u.id === p.unitId);
                   const receipt = effectiveReceipts.find((r) => r.paymentId === p.id);
+                  const rentYear = getEffectivePaymentRentYear(p, state.obligations);
 
                   return (
                     <tr key={p.id} className="hover:bg-[var(--bg-hover)] transition-colors">
-                      <td className="py-3.5 px-5">
+                      <td className="py-3 px-3 whitespace-nowrap">
                         <span className="font-mono-nums font-semibold text-[var(--ink-primary)] block">
                           {p.systemRef}
                         </span>
-                        <span className="hig-caption tabular-nums">
-                          {formatDateShort(p.dateReceived)}
+                        <span className="hig-caption tabular-nums block">
+                          {formatPaymentTimestamp(p.dateReceived, p.timeReceived)}
                         </span>
+                        {p.lastEditedAt && (
+                          <span className="text-[11px] text-[var(--accent-ink)] font-medium">
+                            Reconciled
+                          </span>
+                        )}
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3 px-2.5 max-w-[170px]">
                         <button
                           type="button"
                           onClick={() => tenant && setSelectedTenantIdForDrawer(tenant.id)}
                           className="text-left hover:underline min-h-[44px] flex flex-col justify-center"
                         >
-                          <span className="font-medium text-[var(--ink-primary)] block">
+                          <span className="font-medium text-[var(--ink-primary)] block truncate max-w-[155px]">
                             {tenant?.firstName} {tenant?.lastName}
                           </span>
-                          <span className="hig-caption">
+                          <span className="hig-caption truncate max-w-[155px]">
                             {unit?.code} · {unit?.name}
                           </span>
                         </button>
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3 px-2.5 max-w-[150px]">
                         <span className="text-[var(--ink-primary)] block">{p.method}</span>
-                        <span className="hig-caption font-mono-nums flex items-center gap-1">
-                          {p.bankReference || 'No ref'}
+                        <span className="hig-caption font-mono-nums flex items-center gap-1 truncate">
+                          <span className="truncate">{p.bankReference || 'No ref'}</span>
                           {p.duplicateFlag && (
                             <span
                               title="Duplicate reference flagged"
-                              className="inline-flex items-center"
+                              className="inline-flex items-center shrink-0"
                               style={{ color: 'var(--status-warning-ink)' }}
                             >
                               <AlertTriangle className="w-3.5 h-3.5" />
@@ -318,7 +385,10 @@ export function PaymentsView() {
                           )}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 hig-caption text-[var(--ink-secondary)]">
+                      <td className="py-3 px-2.5 hig-caption text-[var(--ink-secondary)] max-w-[230px]">
+                        <span className="font-mono-nums font-semibold text-[var(--ink-primary)] block">
+                          Year: {rentYear}
+                        </span>
                         {p.allocations.length === 0 ? (
                           <span style={{ color: 'var(--status-warning-ink)' }}>Unapplied credit</span>
                         ) : (
@@ -331,8 +401,16 @@ export function PaymentsView() {
                             );
                           })
                         )}
+                        {p.notes && (
+                          <span
+                            title={p.notes}
+                            className="block text-[11.5px] text-[var(--ink-tertiary)] truncate mt-0.5"
+                          >
+                            {p.notes}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3 px-2.5 whitespace-nowrap">
                         {receipt ? (
                           <div>
                             <StatusBadge label={receipt.status} />
@@ -346,32 +424,51 @@ export function PaymentsView() {
                           <span className="hig-caption">—</span>
                         )}
                       </td>
-                      <td className="py-3.5 px-4 text-right font-mono-nums font-semibold text-[var(--ink-primary)]">
-                        {formatNaira(p.amount)}
+                      <td className="py-3 px-2.5 text-right whitespace-nowrap">
+                        <span className="font-mono-nums font-semibold text-[var(--ink-primary)] block">
+                          {formatNaira(p.amount)}
+                        </span>
+                        {p.unappliedAmount > 0 && (
+                          <span
+                            className="block text-[11.5px] font-mono-nums mt-0.5"
+                            style={{ color: 'var(--status-warning-ink)' }}
+                          >
+                            Unapplied {formatNaira(p.unappliedAmount)}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-3.5 px-4 text-right font-mono-nums text-[var(--ink-secondary)]">
-                        {formatNaira(p.unappliedAmount)}
-                      </td>
-                      <td className="py-3.5 px-5 text-right whitespace-nowrap">
-                        <div className="inline-flex items-center gap-2">
+                      <td className="py-3 px-3 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1.5">
                           <StatusBadge label={p.status} />
                           {p.status === 'Confirmed' && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setReversingPaymentId(p.id);
-                                setReversalReason('');
-                                setReversalError('');
-                              }}
-                              className="inline-flex items-center gap-1 min-h-[44px] px-3 rounded-xl text-[0.8125rem] font-semibold transition-opacity hover:opacity-85"
-                              style={{
-                                backgroundColor: 'var(--status-danger-bg)',
-                                color: 'var(--status-danger-ink)',
-                              }}
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              <span>Reverse</span>
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setEditingPaymentId(p.id)}
+                                aria-label={`Edit payment ${p.systemRef}`}
+                                className="inline-flex items-center gap-1 min-h-[38px] px-2.5 rounded-xl text-[0.8125rem] font-semibold bg-[var(--bg-surface-secondary)] text-[var(--ink-primary)] hover:bg-[var(--bg-surface-tertiary)] transition-colors"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReversingPaymentId(p.id);
+                                  setReversalReason('');
+                                  setReversalError('');
+                                }}
+                                aria-label={`Reverse payment ${p.systemRef}`}
+                                className="inline-flex items-center gap-1 min-h-[38px] px-2.5 rounded-xl text-[0.8125rem] font-semibold transition-opacity hover:opacity-85"
+                                style={{
+                                  backgroundColor: 'var(--status-danger-bg)',
+                                  color: 'var(--status-danger-ink)',
+                                }}
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Reverse</span>
+                              </button>
+                            </>
                           )}
                         </div>
                         {p.reversalReason && (

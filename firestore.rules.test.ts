@@ -80,4 +80,12 @@ test('Dirty Dozen Invariants 1-12: Zero-Trust Eight Pillars structural security 
   assert.match(rulesText, /match \/auditLogs\/\{auditId\}[\s\S]*?allow update: if false;/);
   assert.match(rulesText, /match \/commissions\/\{commissionId\}[\s\S]*?allow update: if false;/);
   assert.match(rulesText, /match \/commissionPayouts\/\{payoutId\}[\s\S]*?allow update: if false;/);
+
+  // 13. Payment reconciliation fields & blueprint parity
+  assert.equal('timeReceived' in blueprint.entities.PaymentRecord.properties, true);
+  assert.equal('rentYearCovered' in blueprint.entities.PaymentRecord.properties, true);
+  assert.equal('lastEditedAt' in blueprint.entities.PaymentRecord.properties, true);
+  assert.equal(rulesText.includes("'timeReceived'"), true);
+  assert.equal(rulesText.includes("'rentYearCovered'"), true);
+  assert.equal(rulesText.includes('incoming().systemRef == existing().systemRef'), true);
 });

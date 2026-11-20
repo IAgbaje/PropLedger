@@ -241,7 +241,7 @@ service cloud.firestore {
 
     function isValidPayment(data) {
       return data.keys().hasAll(['ownerUid', 'id', 'systemRef', 'tenantId', 'agreementId', 'unitId', 'amount', 'dateReceived', 'dateRecorded', 'method', 'bankReference', 'status', 'allocations', 'unappliedAmount', 'notes', 'recordedBy', 'syncedAt']) &&
-        data.keys().hasOnly(['ownerUid', 'id', 'systemRef', 'tenantId', 'agreementId', 'unitId', 'amount', 'dateReceived', 'dateRecorded', 'method', 'bankReference', 'status', 'allocations', 'unappliedAmount', 'notes', 'recordedBy', 'duplicateFlag', 'reversalReason', 'reversedAt', 'adjustedFromPaymentId', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'systemRef', 'tenantId', 'agreementId', 'unitId', 'amount', 'dateReceived', 'timeReceived', 'dateRecorded', 'method', 'bankReference', 'status', 'allocations', 'unappliedAmount', 'rentYearCovered', 'notes', 'recordedBy', 'duplicateFlag', 'reversalReason', 'reversedAt', 'adjustedFromPaymentId', 'lastEditedAt', 'syncedAt']) &&
         isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
         isValidId(data.id) &&
         data.systemRef is string && data.systemRef.size() <= 64 &&
@@ -250,6 +250,7 @@ service cloud.firestore {
         isValidId(data.unitId) &&
         data.amount is number && data.amount >= 0 &&
         data.dateReceived is string && data.dateReceived.size() <= 20 &&
+        isOptString(data, 'timeReceived', 12) &&
         data.dateRecorded is string && data.dateRecorded.size() <= 40 &&
         data.method in ['Bank Transfer', 'POS', 'Cash', 'Cheque'] &&
         data.bankReference is string && data.bankReference.size() <= 120 &&
@@ -257,12 +258,14 @@ service cloud.firestore {
         data.allocations is list && data.allocations.size() <= 50 &&
         (data.allocations.size() == 0 || data.allocations[0] is map) &&
         data.unappliedAmount is number && data.unappliedAmount >= 0 &&
+        isOptString(data, 'rentYearCovered', 40) &&
         data.notes is string && data.notes.size() <= 1000 &&
         data.recordedBy is string && data.recordedBy.size() <= 120 &&
         isOptBool(data, 'duplicateFlag') &&
         isOptString(data, 'reversalReason', 300) &&
         isOptString(data, 'reversedAt', 40) &&
         isOptString(data, 'adjustedFromPaymentId', 128) &&
+        isOptString(data, 'lastEditedAt', 40) &&
         data.syncedAt == request.time;
     }
 
@@ -561,8 +564,10 @@ service cloud.firestore {
           (isWorkspaceOwner(workspaceId) || isAdmin()) &&
           incoming().ownerUid == existing().ownerUid &&
           incoming().id == existing().id &&
+          incoming().systemRef == existing().systemRef &&
+          incoming().dateRecorded == existing().dateRecorded &&
           (existing().status != 'Reversed' || isAdmin()) &&
-          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'status', 'reversalReason', 'reversedAt', 'notes', 'syncedAt']));
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'tenantId', 'agreementId', 'amount', 'dateReceived', 'timeReceived', 'method', 'bankReference', 'allocations', 'unappliedAmount', 'rentYearCovered', 'notes', 'duplicateFlag', 'lastEditedAt', 'status', 'reversalReason', 'reversedAt', 'syncedAt']));
         allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(paymentId) && (isWorkspaceOwner(workspaceId) || isAdmin());
       }
 
@@ -576,7 +581,7 @@ service cloud.firestore {
           incoming().id == existing().id &&
           incoming().createdAt == existing().createdAt &&
           ((!(existing().status in ['Issued', 'Cancelled']) || (existing().status == 'Issued' && incoming().status == 'Correction Required')) || isAdmin()) &&
-          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'status', 'acknowledgedAt', 'acknowledgedNote', 'officialReceiptNumber', 'issuedDate', 'evidenceNote', 'cancellationReason', 'syncedAt']));
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'tenantId', 'amount', 'datePaid', 'rentalPeriodCovered', 'securityLevyIncluded', 'remainingBalanceAtPayment', 'status', 'acknowledgedAt', 'acknowledgedNote', 'officialReceiptNumber', 'issuedDate', 'evidenceNote', 'cancellationReason', 'syncedAt']));
         allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(receiptId) && (isWorkspaceOwner(workspaceId) || isAdmin());
       }
 

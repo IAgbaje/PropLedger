@@ -4,6 +4,7 @@ import { CalendarSyncModal } from './components/CalendarSyncModal';
 import { CommissionsView } from './components/CommissionsView';
 import { CustomMessageComposerModal } from './components/CustomMessageComposerModal';
 import { DashboardView } from './components/DashboardView';
+import { EditPaymentModal } from './components/EditPaymentModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ExpensesMaintenanceView } from './components/ExpensesMaintenanceView';
 import { ImportView } from './components/ImportView';
@@ -62,6 +63,7 @@ export default function App() {
             </Layout>
             <RecordPaymentModal />
             <TenantInspectorDrawer />
+            <EditPaymentModal />
             <CustomMessageComposerModal />
             <CalendarSyncModal />
           </RentalProvider>

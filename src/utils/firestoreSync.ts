@@ -187,12 +187,14 @@ export function sanitizeEntityForFirestore<T extends Record<string, unknown>>(
         unitId: truncateString(base.unitId, 128),
         amount: Math.max(0, Number(base.amount) || 0),
         dateReceived: truncateString(base.dateReceived, 20),
+        timeReceived: optStr(base.timeReceived, 12),
         dateRecorded: truncateString(base.dateRecorded, 40),
         method: base.method,
         bankReference: truncateString(base.bankReference, 120),
         status: base.status,
         allocations: Array.isArray(base.allocations) ? base.allocations.slice(0, 50) : [],
         unappliedAmount: Math.max(0, Number(base.unappliedAmount) || 0),
+        rentYearCovered: optStr(base.rentYearCovered, 40),
         notes: truncateString(base.notes, 1000),
         recordedBy: truncateString(base.recordedBy, 120),
         duplicateFlag:
@@ -200,6 +202,7 @@ export function sanitizeEntityForFirestore<T extends Record<string, unknown>>(
         reversalReason: optStr(base.reversalReason, 300),
         reversedAt: optStr(base.reversedAt, 40),
         adjustedFromPaymentId: optStr(base.adjustedFromPaymentId, 128),
+        lastEditedAt: optStr(base.lastEditedAt, 40),
       };
       break;
     case 'receiptRequests':

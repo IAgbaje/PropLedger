@@ -174,18 +174,21 @@ export interface Payment {
   unitId: string;
   amount: number;
   dateReceived: string; // YYYY-MM-DD
+  timeReceived?: string; // HH:mm or HH:mm:ss (bank statement timestamp)
   dateRecorded: string; // ISO timestamp
   method: PaymentMethod;
   bankReference: string;
   status: PaymentStatus;
   allocations: PaymentAllocation[];
   unappliedAmount: number;
+  rentYearCovered?: string; // e.g., "2025", "2026", "2027", "2025/2026"
   notes: string;
   recordedBy: string;
   duplicateFlag?: boolean;
   reversalReason?: string;
   reversedAt?: string;
   adjustedFromPaymentId?: string;
+  lastEditedAt?: string;
 }
 
 export interface ReceiptRequest {

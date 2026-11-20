@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { AlertTriangle, BellOff, BellRing, Calendar, FileText, Pencil, RefreshCw, Send, Trash2, X } from 'lucide-react';
+import { AlertTriangle, BellOff, BellRing, Calendar, FileText, Pencil, Plus, RefreshCw, Send, Trash2, X } from 'lucide-react';
 import { useRentalStore } from '../context/RentalStore';
 import type { BehaviourIndicator, RentCycle } from '../types/rental';
-import { formatDateShort, formatNaira, parseCurrencyValue } from '../utils/format';
+import { formatDateShort, formatNaira, formatPaymentTimestamp, parseCurrencyValue } from '../utils/format';
 import { analyzeTenantArrears } from '../utils/multiYearArrears';
+import { getEffectivePaymentRentYear } from '../utils/paymentReconciliation';
+import { AddCycleObligationInline } from './AddCycleObligationInline';
 import { CurrencyInput } from './CurrencyInput';
 import { DeleteTenantConfirmModal, EditTenantModal } from './PortfolioEditModals';
 import { StatusBadge } from './StatusBadge';
@@ -18,6 +20,7 @@ export function TenantInspectorDrawer() {
     setSelectedTenantIdForDrawer,
     setPreselectedTenantForPayment,
     setOpenRecordPaymentModal,
+    setEditingPaymentId,
     openComposerFor,
     openCalendarSyncFor,
     toggleTenantNotificationPause,
@@ -43,6 +46,7 @@ export function TenantInspectorDrawer() {
   const [pauseReason, setPauseReason] = useState('');
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showAddCycleForm, setShowAddCycleForm] = useState(false);
 
   if (!selectedTenantIdForDrawer) return null;
 
@@ -522,9 +526,31 @@ export function TenantInspectorDrawer() {
 
           {/* Obligations */}
           <div>
-            <h4 className="hig-caption uppercase tracking-[0.04em] font-semibold mb-2.5">
-              Rental Obligations ({tenantObligations.length})
-            </h4>
+            <div className="flex items-center justify-between gap-2 mb-2.5">
+              <h4 className="hig-caption uppercase tracking-[0.04em] font-semibold">
+                Rental Obligations ({tenantObligations.length})
+              </h4>
+              {activeAgreement && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddCycleForm((v) => !v)}
+                  className="inline-flex items-center gap-1 min-h-[36px] px-2.5 rounded-lg text-[12px] font-semibold text-[var(--accent-ink)] bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)]"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Rent Year</span>
+                </button>
+              )}
+            </div>
+            {showAddCycleForm && activeAgreement && (
+              <div className="mb-3">
+                <AddCycleObligationInline
+                  agreement={activeAgreement}
+                  suggestedYear="2027"
+                  onCancel={() => setShowAddCycleForm(false)}
+                  onCreated={() => setShowAddCycleForm(false)}
+                />
+              </div>
+            )}
             <div className="hig-card divide-y divide-[var(--border-subtle)] overflow-hidden">
               {tenantObligations.map((co) => (
                 <div key={co.obligation.id} className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -606,20 +632,42 @@ export function TenantInspectorDrawer() {
                 <p className="hig-footnote">No payments recorded yet.</p>
               ) : (
                 <div className="space-y-2">
-                  {tenantPayments.map((p) => (
-                    <div key={p.id} className="hig-card p-3.5 text-[13px]">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono-nums font-semibold text-[var(--ink-primary)]">
-                          {formatNaira(p.amount)}
-                        </span>
-                        <StatusBadge label={p.status} />
+                  {tenantPayments.map((p) => {
+                    const rentYear = getEffectivePaymentRentYear(p, state.obligations);
+                    return (
+                      <div key={p.id} className="hig-card p-3.5 text-[13px] space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono-nums font-semibold text-[var(--ink-primary)]">
+                            {formatNaira(p.amount)}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <StatusBadge label={p.status} />
+                            {p.status === 'Confirmed' && (
+                              <button
+                                type="button"
+                                onClick={() => setEditingPaymentId(p.id)}
+                                aria-label={`Edit payment ${p.systemRef}`}
+                                className="inline-flex items-center gap-1 min-h-[32px] px-2 rounded-lg text-[11.5px] font-semibold bg-[var(--bg-surface-secondary)] text-[var(--ink-primary)] hover:bg-[var(--bg-surface-tertiary)]"
+                              >
+                                <Pencil className="w-3 h-3" />
+                                <span>Edit</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="hig-footnote flex items-center gap-1.5 tabular-nums">
+                          <FileText className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">
+                            {p.systemRef} · {formatPaymentTimestamp(p.dateReceived, p.timeReceived)}
+                          </span>
+                        </p>
+                        <p className="hig-caption tabular-nums">
+                          Year: <strong className="text-[var(--ink-primary)]">{rentYear}</strong>
+                          {p.bankReference ? ` · ${p.bankReference}` : ''}
+                        </p>
                       </div>
-                      <p className="hig-footnote mt-1 flex items-center gap-1.5">
-                        <FileText className="w-3.5 h-3.5 shrink-0" />
-                        <span className="truncate">{p.systemRef} · {formatDateShort(p.dateReceived)}</span>
-                      </p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

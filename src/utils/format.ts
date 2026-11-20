@@ -112,6 +112,12 @@ export function formatDateTimeShort(isoStr: string): string {
   }).format(dt);
 }
 
+export function formatPaymentTimestamp(dateReceived: string, timeReceived?: string): string {
+  const datePart = formatDateShort(dateReceived);
+  const timeTrim = timeReceived?.trim();
+  return timeTrim ? `${datePart} · ${timeTrim}` : datePart;
+}
+
 export function downloadTextFile(filename: string, content: string, mimeType = 'text/csv;charset=utf-8;') {
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
