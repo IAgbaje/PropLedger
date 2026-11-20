@@ -300,11 +300,19 @@ export interface CommissionPayout {
   createdAt: string;
 }
 
+export type ActivityScopeCategory = 'Common Area' | 'Unit' | 'Other';
+
 export interface PropertyExpense {
   id: string;
   date: string;
   amount: number;
   category: 'Repairs' | 'Security' | 'Utilities' | 'Cleaning' | 'Legal & Admin' | 'Other';
+  customCategoryLabel?: string; // e.g., "Remembrance for Dad", "Community Donation"
+  isNonPropertyOutgoing?: boolean; // true for owner/personal/donation disbursements from property purse
+  scopeCategory?: ActivityScopeCategory;
+  scopeLabel?: string; // e.g., "Compound Area / Exterior", "Soakaway & Drainage", "Shared Tenants' Toilet"
+  unitId?: string;
+  linkedMaintenanceId?: string;
   description: string;
   vendor: string;
   paymentMethod?: PaymentMethod;
@@ -315,7 +323,9 @@ export interface PropertyExpense {
 
 export interface MaintenanceRecord {
   id: string;
-  unitId?: string; // undefined = property-wide
+  unitId?: string; // undefined = compound/shared/custom scope
+  scopeCategory?: ActivityScopeCategory;
+  scopeLabel?: string; // e.g., "Soakaway & Drainage", "Shared Tenants' Toilet", or custom "Other" text
   issue: string;
   dateReported: string;
   status: 'Open' | 'In Progress' | 'Resolved';
@@ -323,6 +333,7 @@ export interface MaintenanceRecord {
   estimatedOrActualCost: number;
   resolutionDetails?: string;
   resolvedDate?: string;
+  linkedExpenseId?: string;
 }
 
 export interface StakeholderContact {

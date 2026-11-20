@@ -394,12 +394,18 @@ service cloud.firestore {
 
     function isValidExpense(data) {
       return data.keys().hasAll(['ownerUid', 'id', 'date', 'amount', 'category', 'description', 'vendor', 'createdAt', 'syncedAt']) &&
-        data.keys().hasOnly(['ownerUid', 'id', 'date', 'amount', 'category', 'description', 'vendor', 'paymentMethod', 'reference', 'notes', 'createdAt', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'date', 'amount', 'category', 'customCategoryLabel', 'isNonPropertyOutgoing', 'scopeCategory', 'scopeLabel', 'unitId', 'linkedMaintenanceId', 'description', 'vendor', 'paymentMethod', 'reference', 'notes', 'createdAt', 'syncedAt']) &&
         isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
         isValidId(data.id) &&
         data.date is string && data.date.size() <= 20 &&
         data.amount is number && data.amount >= 0 &&
         data.category in ['Repairs', 'Security', 'Utilities', 'Cleaning', 'Legal & Admin', 'Other'] &&
+        isOptString(data, 'customCategoryLabel', 120) &&
+        isOptBool(data, 'isNonPropertyOutgoing') &&
+        (!('scopeCategory' in data) || data.scopeCategory in ['Common Area', 'Unit', 'Other']) &&
+        isOptString(data, 'scopeLabel', 120) &&
+        isOptString(data, 'unitId', 128) &&
+        isOptString(data, 'linkedMaintenanceId', 128) &&
         data.description is string && data.description.size() <= 300 &&
         data.vendor is string && data.vendor.size() <= 120 &&
         isOptString(data, 'paymentMethod', 40) &&
@@ -411,10 +417,12 @@ service cloud.firestore {
 
     function isValidMaintenance(data) {
       return data.keys().hasAll(['ownerUid', 'id', 'issue', 'dateReported', 'status', 'assignedTo', 'estimatedOrActualCost', 'syncedAt']) &&
-        data.keys().hasOnly(['ownerUid', 'id', 'unitId', 'issue', 'dateReported', 'status', 'assignedTo', 'estimatedOrActualCost', 'resolutionDetails', 'resolvedDate', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'unitId', 'scopeCategory', 'scopeLabel', 'issue', 'dateReported', 'status', 'assignedTo', 'estimatedOrActualCost', 'resolutionDetails', 'resolvedDate', 'linkedExpenseId', 'syncedAt']) &&
         isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
         isValidId(data.id) &&
         isOptString(data, 'unitId', 128) &&
+        (!('scopeCategory' in data) || data.scopeCategory in ['Common Area', 'Unit', 'Other']) &&
+        isOptString(data, 'scopeLabel', 120) &&
         data.issue is string && data.issue.size() <= 300 &&
         data.dateReported is string && data.dateReported.size() <= 20 &&
         data.status in ['Open', 'In Progress', 'Resolved'] &&
@@ -422,6 +430,7 @@ service cloud.firestore {
         data.estimatedOrActualCost is number && data.estimatedOrActualCost >= 0 &&
         isOptString(data, 'resolutionDetails', 600) &&
         isOptString(data, 'resolvedDate', 20) &&
+        isOptString(data, 'linkedExpenseId', 128) &&
         data.syncedAt == request.time;
     }
 
@@ -648,7 +657,7 @@ service cloud.firestore {
           incoming().ownerUid == existing().ownerUid &&
           incoming().id == existing().id &&
           incoming().createdAt == existing().createdAt &&
-          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['date', 'amount', 'category', 'description', 'vendor', 'paymentMethod', 'reference', 'notes', 'syncedAt']));
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['date', 'amount', 'category', 'customCategoryLabel', 'isNonPropertyOutgoing', 'scopeCategory', 'scopeLabel', 'unitId', 'linkedMaintenanceId', 'description', 'vendor', 'paymentMethod', 'reference', 'notes', 'syncedAt']));
         allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(expenseId) && (isWorkspaceOwner(workspaceId) || isAdmin());
       }
 
@@ -660,8 +669,7 @@ service cloud.firestore {
           (isWorkspaceOwner(workspaceId) || isAdmin()) &&
           incoming().ownerUid == existing().ownerUid &&
           incoming().id == existing().id &&
-          ((existing().status != 'Resolved' || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'syncedAt'])) || isAdmin()) &&
-          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'status', 'assignedTo', 'estimatedOrActualCost', 'resolutionDetails', 'resolvedDate', 'syncedAt']));
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'scopeCategory', 'scopeLabel', 'issue', 'dateReported', 'status', 'assignedTo', 'estimatedOrActualCost', 'resolutionDetails', 'resolvedDate', 'linkedExpenseId', 'syncedAt']));
         allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(maintenanceId) && (isWorkspaceOwner(workspaceId) || isAdmin());
       }
 

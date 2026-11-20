@@ -52,6 +52,16 @@ import {
 } from '../lib/firestoreLedger';
 import { hydrateRentalState } from '../utils/stateHydration';
 import {
+  applyEditExpense,
+  applyEditMaintenance,
+  applyRecordMaintenanceWithOptionalExpense,
+  buildValidatedExpenseFields,
+  computeExpenseBreakdown,
+  resolveExpenseCategoryLabel,
+  type ExpenseMutationInput,
+  type MaintenanceMutationInput,
+} from '../utils/expensesMaintenance';
+import {
   applyTenantDelete,
   applyTenantEdit,
   applyUnitDelete,
@@ -69,6 +79,9 @@ import {
   type PaymentEditPayload,
 } from '../utils/paymentReconciliation';
 import { useIntegrations } from './IntegrationContext';
+import type { NavTab } from '../utils/headerActions';
+
+export type { NavTab };
 
 const STORAGE_KEY = 'propledger_rms_state_v2';
 
@@ -117,6 +130,10 @@ export interface SummaryMetrics {
   commissionAccrued: number;
   commissionPaid: number;
   commissionOutstanding: number;
+  propertyOperatingExpenses: number;
+  propertyOperatingExpenseCount: number;
+  nonPropertyOutgoings: number;
+  nonPropertyOutgoingCount: number;
   totalExpenses: number;
 }
 
@@ -314,8 +331,13 @@ interface RentalContextValue {
     reference: string;
     notes: string;
   }) => { ok: boolean; error?: string };
-  recordExpense: (input: Omit<PropertyExpense, 'id' | 'createdAt'>) => void;
-  recordMaintenance: (input: Omit<MaintenanceRecord, 'id'>) => void;
+  recordExpense: (input: ExpenseMutationInput) => { ok: boolean; error?: string };
+  editExpense: (expenseId: string, input: ExpenseMutationInput) => { ok: boolean; error?: string };
+  recordMaintenance: (input: MaintenanceMutationInput) => { ok: boolean; error?: string };
+  editMaintenance: (
+    maintenanceId: string,
+    input: MaintenanceMutationInput
+  ) => { ok: boolean; error?: string };
   updateMaintenanceStatus: (
     id: string,
     status: MaintenanceRecord['status'],
@@ -342,19 +364,6 @@ interface RentalContextValue {
   resetDemoData: () => void;
 }
 
-export type NavTab =
-  | 'overview'
-  | 'units-tenants'
-  | 'payments'
-  | 'arrears-promises'
-  | 'receipts'
-  | 'notifications'
-  | 'sms-activity'
-  | 'commissions'
-  | 'expenses'
-  | 'import'
-  | 'settings';
-
 const RentalContext = createContext<RentalContextValue | null>(null);
 
 export function RentalProvider({ children }: { children: React.ReactNode }) {
@@ -369,7 +378,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore storage errors
     }
-    return SEED_STATE;
+    return hydrateRentalState(SEED_STATE);
   });
 
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
@@ -591,7 +600,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
     const commissionAccrued = state.commissions.reduce((acc, c) => acc + c.accruedAmount, 0);
     const commissionPaid = state.commissionPayouts.reduce((acc, p) => acc + p.amount, 0);
     const commissionOutstanding = Math.max(0, commissionAccrued - commissionPaid);
-    const totalExpenses = state.expenses.reduce((acc, e) => acc + e.amount, 0);
+    const expenseBreakdown = computeExpenseBreakdown(state.expenses);
 
     return {
       expectedRent,
@@ -608,7 +617,11 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       commissionAccrued,
       commissionPaid,
       commissionOutstanding,
-      totalExpenses,
+      propertyOperatingExpenses: expenseBreakdown.propertyOperatingTotal,
+      propertyOperatingExpenseCount: expenseBreakdown.propertyOperatingCount,
+      nonPropertyOutgoings: expenseBreakdown.nonPropertyOutgoingTotal,
+      nonPropertyOutgoingCount: expenseBreakdown.nonPropertyOutgoingCount,
+      totalExpenses: expenseBreakdown.combinedTotal,
     };
   }, [computedObligations, effectiveReceipts, evaluatedCommitments, state.commissions, state.commissionPayouts, state.expenses]);
 
@@ -2103,11 +2116,18 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
   };
 
   const recordExpense: RentalContextValue['recordExpense'] = (input) => {
+    const validated = buildValidatedExpenseFields(input, stateRef.current.units);
+    if (!validated.ok || !validated.fields) {
+      return { ok: false, error: validated.error || 'Could not validate expense details.' };
+    }
     const exp: PropertyExpense = {
-      ...input,
+      ...validated.fields,
       id: uid('exp'),
       createdAt: new Date().toISOString(),
     };
+    const catLabel = resolveExpenseCategoryLabel(exp);
+    const scopeText = exp.scopeLabel || (exp.unitId ? 'Unit' : 'Common Area');
+    const purseTag = exp.isNonPropertyOutgoing ? ' · Non-Property Purse' : '';
     setState((prev) => ({
       ...prev,
       expenses: [exp, ...prev.expenses],
@@ -2117,34 +2137,40 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
           'Expense',
           exp.id,
           'Expense Recorded',
-          `Recorded ₦${exp.amount.toLocaleString()} expense (${exp.category}) paid to ${exp.vendor}.`,
+          `Recorded ₦${exp.amount.toLocaleString()} outgoing (${catLabel} · ${scopeText}${purseTag}) paid to ${exp.vendor}.`,
           { newValue: `${exp.description} · ₦${exp.amount.toLocaleString()}` }
         ),
         ...prev.auditLogs,
       ],
     }));
+    return { ok: true };
+  };
+
+  const editExpense: RentalContextValue['editExpense'] = (expenseId, input) => {
+    const res = applyEditExpense(stateRef.current, expenseId, input, uid);
+    if (!res.ok) {
+      return { ok: false, error: res.error || 'Could not update expense record.' };
+    }
+    setState(res.state);
+    return { ok: true };
   };
 
   const recordMaintenance: RentalContextValue['recordMaintenance'] = (input) => {
-    const rec: MaintenanceRecord = {
-      ...input,
-      id: uid('mnt'),
-    };
-    setState((prev) => ({
-      ...prev,
-      maintenance: [rec, ...prev.maintenance],
-      auditLogs: [
-        makeAudit(
-          prev.property.managerName,
-          'Maintenance',
-          rec.id,
-          'Maintenance Logged',
-          `Logged maintenance ticket: "${rec.issue}" assigned to ${rec.assignedTo}.`,
-          { newValue: `${rec.status} · ₦${rec.estimatedOrActualCost.toLocaleString()}` }
-        ),
-        ...prev.auditLogs,
-      ],
-    }));
+    const res = applyRecordMaintenanceWithOptionalExpense(stateRef.current, input, uid);
+    if (!res.ok) {
+      return { ok: false, error: res.error || 'Could not log maintenance activity.' };
+    }
+    setState(res.state);
+    return { ok: true };
+  };
+
+  const editMaintenance: RentalContextValue['editMaintenance'] = (maintenanceId, input) => {
+    const res = applyEditMaintenance(stateRef.current, maintenanceId, input, uid);
+    if (!res.ok) {
+      return { ok: false, error: res.error || 'Could not update maintenance ticket.' };
+    }
+    setState(res.state);
+    return { ok: true };
   };
 
   const updateMaintenanceStatus: RentalContextValue['updateMaintenanceStatus'] = (
@@ -2571,7 +2597,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
 
   const resetDemoData = () => {
     localStorage.removeItem(STORAGE_KEY);
-    setState(SEED_STATE);
+    setState(hydrateRentalState(SEED_STATE));
   };
 
   return (
@@ -2636,7 +2662,9 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
         cancelCommitment,
         recordCommissionPayout,
         recordExpense,
+        editExpense,
         recordMaintenance,
+        editMaintenance,
         updateMaintenanceStatus,
         commitTenancyImport,
         commitPaymentImport,

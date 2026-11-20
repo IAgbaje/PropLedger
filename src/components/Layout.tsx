@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useRentalStore, type NavTab } from '../context/RentalStore';
 import { useTheme } from '../context/ThemeContext';
+import { shouldShowGlobalRecordPayment } from '../utils/headerActions';
 
 interface NavItem {
   id: NavTab;
@@ -99,6 +100,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const currentNav = navItems.find((n) => n.id === activeTab) || navItems[0];
   const isMoreTabActive = !primaryBottomTabs.some((t) => t.id === activeTab);
+  const showGlobalRecordPayment = shouldShowGlobalRecordPayment(activeTab);
 
   const handleSelectNav = (id: NavTab) => {
     setActiveTab(id);
@@ -332,21 +334,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
               )}
             </button>
 
-            <button
-              type="button"
-              onClick={handleOpenQuickPayment}
-              className="hig-btn-primary !px-3 sm:!px-4 whitespace-nowrap shrink-0"
-              aria-label="Record Payment"
-            >
-              <Plus className="w-4 h-4 shrink-0" />
-              <span className="hidden xs:inline sm:inline">Record Payment</span>
-              <span className="xs:hidden sm:hidden">Pay</span>
-            </button>
+            {showGlobalRecordPayment && (
+              <button
+                type="button"
+                onClick={handleOpenQuickPayment}
+                className="hig-btn-primary !px-3 sm:!px-4 whitespace-nowrap shrink-0"
+                aria-label="Record Payment"
+              >
+                <Plus className="w-4 h-4 shrink-0" />
+                <span className="hidden xs:inline sm:inline">Record Payment</span>
+                <span className="xs:hidden sm:hidden">Pay</span>
+              </button>
+            )}
           </div>
         </header>
 
         {/* Breathable Content Container with bottom tab bar clearance */}
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 pt-5 pb-24 lg:py-8 max-w-[1440px] w-full mx-auto">
+        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 pt-5 pb-24 lg:py-8 max-w-[1440px] w-full mx-auto">
           {children}
         </main>
       </div>

@@ -318,6 +318,15 @@ export function sanitizeEntityForFirestore<T extends Record<string, unknown>>(
         date: truncateString(base.date, 20),
         amount: Math.max(0, Number(base.amount) || 0),
         category: base.category,
+        customCategoryLabel: optStr(base.customCategoryLabel, 120),
+        isNonPropertyOutgoing:
+          typeof base.isNonPropertyOutgoing === 'boolean'
+            ? base.isNonPropertyOutgoing
+            : undefined,
+        scopeCategory: optStr(base.scopeCategory, 32),
+        scopeLabel: optStr(base.scopeLabel, 120),
+        unitId: optStr(base.unitId, 128),
+        linkedMaintenanceId: optStr(base.linkedMaintenanceId, 128),
         description: truncateString(base.description, 300),
         vendor: truncateString(base.vendor, 120),
         paymentMethod: optStr(base.paymentMethod, 40),
@@ -330,6 +339,8 @@ export function sanitizeEntityForFirestore<T extends Record<string, unknown>>(
       doc = {
         id: safeId,
         unitId: optStr(base.unitId, 128),
+        scopeCategory: optStr(base.scopeCategory, 32),
+        scopeLabel: optStr(base.scopeLabel, 120),
         issue: truncateString(base.issue, 300),
         dateReported: truncateString(base.dateReported, 20),
         status: base.status,
@@ -337,6 +348,7 @@ export function sanitizeEntityForFirestore<T extends Record<string, unknown>>(
         estimatedOrActualCost: Math.max(0, Number(base.estimatedOrActualCost) || 0),
         resolutionDetails: optStr(base.resolutionDetails, 600),
         resolvedDate: optStr(base.resolvedDate, 20),
+        linkedExpenseId: optStr(base.linkedExpenseId, 128),
       };
       break;
     case 'contacts':

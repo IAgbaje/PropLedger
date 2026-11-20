@@ -21,7 +21,12 @@ import {
   buildUpcomingDueDates,
 } from '../utils/multiYearArrears';
 import { StatusBadge } from './StatusBadge';
-import { ExportCsvButton, SearchInput } from './TableToolbarControls';
+import {
+  ExportCsvButton,
+  FilterMenuButton,
+  SearchInput,
+  type FilterMenuSection,
+} from './TableToolbarControls';
 
 type DashboardFilter =
   | 'All'
@@ -39,21 +44,38 @@ type DashboardFilter =
   | 'Promise Pending/Breached'
   | 'Receipt Pending/Overdue';
 
-const FILTERS: DashboardFilter[] = [
-  'All',
-  'Multi-Year Debtor',
-  'Multiple Dues (Rent + Levy)',
-  'Overdue',
-  'Partially Paid',
-  'Due',
-  'Upcoming',
-  'Under Review',
-  'Paid / Settled',
-  'Repeated Late Payment',
-  'Persistent Arrears',
-  'Chronic Delinquency',
-  'Promise Pending/Breached',
-  'Receipt Pending/Overdue',
+const FILTER_SECTIONS: FilterMenuSection[] = [
+  {
+    options: [{ value: 'All', label: 'All Obligations' }],
+  },
+  {
+    title: 'Debt Profile',
+    options: [
+      { value: 'Multi-Year Debtor', label: 'Multi-Year Debtor' },
+      { value: 'Multiple Dues (Rent + Levy)', label: 'Multiple Dues (Rent + Levy)' },
+    ],
+  },
+  {
+    title: 'Settlement & Due Status',
+    options: [
+      { value: 'Overdue', label: 'Overdue' },
+      { value: 'Partially Paid', label: 'Partially Paid' },
+      { value: 'Due', label: 'Due' },
+      { value: 'Upcoming', label: 'Upcoming' },
+      { value: 'Under Review', label: 'Under Review' },
+      { value: 'Paid / Settled', label: 'Paid / Settled' },
+    ],
+  },
+  {
+    title: 'Behaviour & Queues',
+    options: [
+      { value: 'Repeated Late Payment', label: 'Repeated Late Payment' },
+      { value: 'Persistent Arrears', label: 'Persistent Arrears' },
+      { value: 'Chronic Delinquency', label: 'Chronic Delinquency' },
+      { value: 'Promise Pending/Breached', label: 'Promise Pending/Breached' },
+      { value: 'Receipt Pending/Overdue', label: 'Receipt Pending/Overdue' },
+    ],
+  },
 ];
 
 export function DashboardView() {
@@ -357,7 +379,7 @@ export function DashboardView() {
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 min-w-0">
       {/* Section Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div className="min-w-0">
@@ -451,15 +473,32 @@ export function DashboardView() {
               </button>
             </div>
             <div className="flex items-center justify-between gap-2 min-h-[32px]">
-              <span className="text-[var(--ink-secondary)]">Property Expenses (23)</span>
+              <span className="text-[var(--ink-secondary)]">
+                Property Expenses ({summaryMetrics.propertyOperatingExpenseCount})
+              </span>
               <button
                 type="button"
                 onClick={() => setActiveTab('expenses')}
                 className="font-mono-nums font-semibold text-[var(--ink-primary)] hover:underline whitespace-nowrap"
               >
-                {formatNaira(summaryMetrics.totalExpenses)}
+                {formatNaira(summaryMetrics.propertyOperatingExpenses)}
               </button>
             </div>
+            {summaryMetrics.nonPropertyOutgoingCount > 0 && (
+              <div className="flex items-center justify-between gap-2 min-h-[32px]">
+                <span className="text-[var(--ink-secondary)]">
+                  Purse Outgoings ({summaryMetrics.nonPropertyOutgoingCount})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('expenses')}
+                  className="font-mono-nums font-semibold hover:underline whitespace-nowrap"
+                  style={{ color: 'var(--status-warning-ink)' }}
+                >
+                  {formatNaira(summaryMetrics.nonPropertyOutgoings)}
+                </button>
+              </div>
+            )}
             <div className="flex items-center justify-between gap-2 min-h-[32px]">
               <span className="text-[var(--ink-secondary)]">Receipts Queue</span>
               <button
@@ -1114,22 +1153,30 @@ export function DashboardView() {
       </section>
 
       {/* Operational Obligations & Tenant Status Table / Mobile Card Stack */}
-      <section className="hig-card overflow-hidden">
-        <div className="p-5 sm:p-6 border-b space-y-4" style={{ borderColor: 'var(--border-hairline)' }}>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
+      <section className="hig-card w-full min-w-0">
+        <div className="p-5 sm:p-6 border-b rounded-t-2xl" style={{ borderColor: 'var(--border-hairline)' }}>
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+            <div className="min-w-0">
               <h2 className="hig-headline">Rental Obligations Ledger</h2>
               <p className="hig-footnote mt-0.5">
                 Settlement status and due-date status tracked independently per policy.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 shrink-0">
+              <FilterMenuButton
+                label="Filter"
+                value={selectedFilter}
+                defaultValue="All"
+                onChange={(val) => setSelectedFilter(val as DashboardFilter)}
+                sections={FILTER_SECTIONS}
+                ariaLabel="Filter rental obligations"
+              />
               <SearchInput
                 value={searchQuery}
                 onChange={setSearchQuery}
                 placeholder="Search unit number or tenant name..."
                 ariaLabel="Search obligations by unit number or tenant name"
-                className="w-full sm:w-72"
+                className="w-full sm:w-56"
               />
               <ExportCsvButton
                 onClick={handleExportObligationsCsv}
@@ -1137,32 +1184,6 @@ export function DashboardView() {
                 count={filteredRows.length}
               />
             </div>
-          </div>
-
-          <div
-            className="flex items-center gap-1.5 flex-wrap"
-            role="tablist"
-            aria-label="Obligation status filters"
-          >
-            {FILTERS.map((f) => {
-              const active = selectedFilter === f;
-              return (
-                <button
-                  key={f}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setSelectedFilter(f)}
-                  className={`min-h-[40px] px-3 py-1.5 rounded-xl text-[0.8125rem] font-medium transition-colors whitespace-nowrap shrink-0 ${
-                    active
-                      ? 'bg-[var(--accent)] text-white font-semibold'
-                      : 'bg-[var(--bg-surface-secondary)] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--bg-surface-tertiary)]'
-                  }`}
-                >
-                  {f}
-                </button>
-              );
-            })}
           </div>
         </div>
 
@@ -1248,7 +1269,7 @@ export function DashboardView() {
         </div>
 
         {/* Desktop Table (>= md) */}
-        <div className="hidden md:block overflow-x-auto">
+        <div className="hidden md:block w-full overflow-x-auto rounded-b-2xl">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr

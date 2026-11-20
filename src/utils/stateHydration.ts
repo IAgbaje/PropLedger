@@ -1,9 +1,17 @@
 import { SEED_STATE } from '../data/seedData';
 import type { RentalAppState } from '../types/rental';
+import { hydrateLegacyExpense, hydrateLegacyMaintenance } from './expensesMaintenance';
 
 export function hydrateRentalState(raw: Partial<RentalAppState> | null | undefined): RentalAppState {
+  const unitsForBase =
+    raw && Array.isArray(raw.units) && raw.units.length > 0 ? raw.units : SEED_STATE.units;
+
   if (!raw || typeof raw !== 'object') {
-    return SEED_STATE;
+    return {
+      ...SEED_STATE,
+      expenses: SEED_STATE.expenses.map((e) => hydrateLegacyExpense(e, unitsForBase)),
+      maintenance: SEED_STATE.maintenance.map((m) => hydrateLegacyMaintenance(m, unitsForBase)),
+    };
   }
 
   const rawProp = raw.property ?? ({} as Partial<RentalAppState['property']>);
@@ -31,6 +39,13 @@ export function hydrateRentalState(raw: Partial<RentalAppState> | null | undefin
       .replace(/Ibrahim Agbaje/g, 'Ibraheem Agbaje');
   };
 
+  const hydratedExpenses = (Array.isArray(raw.expenses) ? raw.expenses : SEED_STATE.expenses).map(
+    (e) => hydrateLegacyExpense(e, unitsForBase)
+  );
+  const hydratedMaintenance = (
+    Array.isArray(raw.maintenance) ? raw.maintenance : SEED_STATE.maintenance
+  ).map((m) => hydrateLegacyMaintenance(m, unitsForBase));
+
   return {
     ...SEED_STATE,
     ...raw,
@@ -49,6 +64,8 @@ export function hydrateRentalState(raw: Partial<RentalAppState> | null | undefin
       Array.isArray(raw.smsTemplates) && raw.smsTemplates.length > 0
         ? raw.smsTemplates
         : SEED_STATE.smsTemplates,
+    expenses: hydratedExpenses,
+    maintenance: hydratedMaintenance,
     notifications: Array.isArray(raw.notifications)
       ? raw.notifications.map((n) => ({
           ...n,

@@ -88,4 +88,18 @@ test('Dirty Dozen Invariants 1-12: Zero-Trust Eight Pillars structural security 
   assert.equal(rulesText.includes("'timeReceived'"), true);
   assert.equal(rulesText.includes("'rentYearCovered'"), true);
   assert.equal(rulesText.includes('incoming().systemRef == existing().systemRef'), true);
+
+  // 14. Expense & Maintenance scope, non-property purse, and editing fields parity
+  assert.equal('customCategoryLabel' in blueprint.entities.ExpenseRecord.properties, true);
+  assert.equal('isNonPropertyOutgoing' in blueprint.entities.ExpenseRecord.properties, true);
+  assert.equal('scopeCategory' in blueprint.entities.ExpenseRecord.properties, true);
+  assert.equal('scopeLabel' in blueprint.entities.ExpenseRecord.properties, true);
+  assert.equal('linkedMaintenanceId' in blueprint.entities.ExpenseRecord.properties, true);
+  assert.equal('scopeCategory' in blueprint.entities.MaintenanceItemRecord.properties, true);
+  assert.equal('scopeLabel' in blueprint.entities.MaintenanceItemRecord.properties, true);
+  assert.equal('linkedExpenseId' in blueprint.entities.MaintenanceItemRecord.properties, true);
+  assert.equal(rulesText.includes("'customCategoryLabel'"), true);
+  assert.equal(rulesText.includes("'isNonPropertyOutgoing'"), true);
+  assert.equal(rulesText.includes("'scopeLabel'"), true);
+  assert.equal(rulesText.includes("'linkedExpenseId'"), true);
 });

@@ -311,7 +311,7 @@
     },
     "ExpenseRecord": {
       "title": "ExpenseRecord",
-      "description": "Property expense ledger record.",
+      "description": "Property expense or non-property purse outgoing ledger record.",
       "type": "object",
       "properties": {
         "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -319,6 +319,12 @@
         "date": { "type": "string", "maxLength": 20 },
         "amount": { "type": "number" },
         "category": { "type": "string", "enum": ["Repairs", "Security", "Utilities", "Cleaning", "Legal & Admin", "Other"] },
+        "customCategoryLabel": { "type": "string", "maxLength": 120 },
+        "isNonPropertyOutgoing": { "type": "boolean" },
+        "scopeCategory": { "type": "string", "enum": ["Common Area", "Unit", "Other"] },
+        "scopeLabel": { "type": "string", "maxLength": 120 },
+        "unitId": { "type": "string", "maxLength": 128 },
+        "linkedMaintenanceId": { "type": "string", "maxLength": 128 },
         "description": { "type": "string", "maxLength": 300 },
         "vendor": { "type": "string", "maxLength": 120 },
         "paymentMethod": { "type": "string", "maxLength": 40 },
@@ -331,12 +337,14 @@
     },
     "MaintenanceItemRecord": {
       "title": "MaintenanceItemRecord",
-      "description": "Property repair or maintenance work order.",
+      "description": "Property repair or maintenance work order with area scope.",
       "type": "object",
       "properties": {
         "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "unitId": { "type": "string", "maxLength": 128 },
+        "scopeCategory": { "type": "string", "enum": ["Common Area", "Unit", "Other"] },
+        "scopeLabel": { "type": "string", "maxLength": 120 },
         "issue": { "type": "string", "maxLength": 300 },
         "dateReported": { "type": "string", "maxLength": 20 },
         "status": { "type": "string", "enum": ["Open", "In Progress", "Resolved"] },
@@ -344,6 +352,7 @@
         "estimatedOrActualCost": { "type": "number" },
         "resolutionDetails": { "type": "string", "maxLength": 600 },
         "resolvedDate": { "type": "string", "maxLength": 20 },
+        "linkedExpenseId": { "type": "string", "maxLength": 128 },
         "syncedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["ownerUid", "id", "issue", "dateReported", "status", "assignedTo", "estimatedOrActualCost", "syncedAt"]
