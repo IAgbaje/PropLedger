@@ -26,7 +26,7 @@ import type {
   StakeholderRole,
 } from '../types/rental';
 import { exportFilteredCsv } from '../utils/csvExport';
-import { formatDateTimeShort, formatNaira, parseCurrencyValue } from '../utils/format';
+import { formatDateTimeShort, formatNaira, formatTenantName, parseCurrencyValue } from '../utils/format';
 import { calculateSmsSegments, interpolateTemplate } from '../utils/messaging';
 import { CurrencyInput } from './CurrencyInput';
 import { GoogleSignInButton } from './GoogleSignInButton';
@@ -60,6 +60,9 @@ export function SettingsAuditView() {
     openComposerFor,
     updateSettings,
     updatePropertyProfile,
+    addCustomPaymentCategory,
+    deleteCustomPaymentCategory,
+    cleanSampleTenantContacts,
     saveSmsTemplate,
     deleteSmsTemplate,
     updateContact,
@@ -113,6 +116,13 @@ export function SettingsAuditView() {
   const [cRole, setCRole] = useState<StakeholderRole>('Additional Contact');
   const [cPhone, setCPhone] = useState('');
   const [cEmail, setCEmail] = useState('');
+
+  // Custom payment category inline builder & cleanup feedback
+  const [catLabel, setCatLabel] = useState('');
+  const [catDefaultStr, setCatDefaultStr] = useState('');
+  const [catCommissionEligible, setCatCommissionEligible] = useState(false);
+  const [catFeedback, setCatFeedback] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  const [cleanupResultMsg, setCleanupResultMsg] = useState('');
 
   useEffect(() => {
     setPropName(state.property.name);
@@ -237,9 +247,9 @@ export function SettingsAuditView() {
     const sampleReceipt = state.receiptRequests.find((r) => r.officialReceiptNumber);
     const sampleMaint = state.maintenance[0];
     return {
-      firstName: sampleTenant?.firstName || 'Adebowale',
+      firstName: sampleTenant?.firstName || sampleTenant?.alias || 'Adebowale',
       fullName: sampleTenant
-        ? `${sampleTenant.firstName} ${sampleTenant.lastName}`
+        ? formatTenantName(sampleTenant)
         : 'Adebowale Ogunleye',
       unitCode: sampleUnit?.code || 'FLT-A1',
       unitName: sampleUnit?.name || 'Flat A1',
@@ -330,7 +340,7 @@ export function SettingsAuditView() {
 
     const tenant = tenantId ? state.tenants.find((t) => t.id === tenantId) : undefined;
     const unit = unitId ? state.units.find((u) => u.id === unitId) : undefined;
-    return `${tenant ? `${tenant.firstName} ${tenant.lastName}` : ''} ${unit ? `${unit.code} ${unit.name}` : ''}`.trim();
+    return `${tenant ? `${formatTenantName(tenant)} ${tenant.alias || ''}` : ''} ${unit ? `${unit.code} ${unit.name}` : ''}`.trim();
   };
 
   const filteredAudit = useMemo(() => {
@@ -725,6 +735,186 @@ export function SettingsAuditView() {
               </button>
             </div>
           </form>
+
+          {/* Custom Payment Categories & Contact Data Hygiene */}
+          <section className="hig-card p-5 sm:p-6 space-y-5">
+            <div>
+              <h2 className="hig-headline">Payment Categories &amp; Contact Data Cleanup</h2>
+              <p className="hig-footnote mt-0.5">
+                Define recurring or ad-hoc charge categories (e.g. Waste Levy, Generator Fuel) and choose whether lawyer commission applies.
+              </p>
+            </div>
+
+            {catFeedback && (
+              <div
+                className="p-3 rounded-xl text-[0.875rem]"
+                style={{
+                  backgroundColor:
+                    catFeedback.tone === 'success'
+                      ? 'var(--status-success-bg)'
+                      : 'var(--status-danger-bg)',
+                  color:
+                    catFeedback.tone === 'success'
+                      ? 'var(--status-success-ink)'
+                      : 'var(--status-danger-ink)',
+                }}
+              >
+                {catFeedback.text}
+              </div>
+            )}
+
+            <div className="hig-card-inset p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="hig-subhead font-semibold text-[var(--ink-primary)]">
+                  Built-in &amp; Custom Payment Categories
+                </span>
+                <span className="hig-caption">
+                  Built-in: Annual Rent ({state.settings.lawyerCommissionRatePercent}% commission) · Security Levy (0% commission)
+                </span>
+              </div>
+
+              {(state.settings.customPaymentCategories ?? []).length > 0 && (
+                <div className="divide-y rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}>
+                  {(state.settings.customPaymentCategories ?? []).map((cat) => (
+                    <div
+                      key={cat.id}
+                      className="px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[0.875rem] font-semibold text-[var(--ink-primary)]">
+                          {cat.label}
+                        </span>
+                        <StatusBadge
+                          label={
+                            cat.commissionEligible
+                              ? `${state.settings.lawyerCommissionRatePercent}% Commission`
+                              : 'No Commission'
+                          }
+                          tone={cat.commissionEligible ? 'ink' : 'neutral'}
+                        />
+                        {cat.defaultAmount && (
+                          <span className="hig-caption font-mono-nums">
+                            Default {formatNaira(cat.defaultAmount)}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => deleteCustomPaymentCategory(cat.id)}
+                        className="min-h-[36px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[0.8125rem] font-medium"
+                        style={{
+                          backgroundColor: 'var(--status-danger-bg)',
+                          color: 'var(--status-danger-ink)',
+                        }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Remove</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end pt-1">
+                <div className="sm:col-span-5">
+                  <label htmlFor="settings-cat-label" className="block hig-caption mb-1">
+                    New Category Name
+                  </label>
+                  <input
+                    id="settings-cat-label"
+                    type="text"
+                    value={catLabel}
+                    onChange={(e) => setCatLabel(e.target.value)}
+                    placeholder="e.g. Waste Levy, Borehole Levy"
+                    className="hig-input w-full"
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label htmlFor="settings-cat-default" className="block hig-caption mb-1">
+                    Default Amount (₦)
+                  </label>
+                  <CurrencyInput
+                    id="settings-cat-default"
+                    min={0}
+                    value={catDefaultStr}
+                    onValueChange={(raw) => setCatDefaultStr(raw)}
+                    placeholder="Optional"
+                    className="hig-input w-full"
+                  />
+                </div>
+                <div className="sm:col-span-4 flex items-center justify-between gap-2">
+                  <label className="flex items-center gap-2 text-[0.8125rem] text-[var(--ink-primary)] cursor-pointer min-h-[40px]">
+                    <input
+                      type="checkbox"
+                      checked={catCommissionEligible}
+                      onChange={(e) => setCatCommissionEligible(e.target.checked)}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span>Commission applies</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const res = addCustomPaymentCategory({
+                        label: catLabel,
+                        defaultAmount: catDefaultStr.trim()
+                          ? parseCurrencyValue(catDefaultStr)
+                          : undefined,
+                        commissionEligible: catCommissionEligible,
+                      });
+                      if (!res.ok) {
+                        setCatFeedback({ tone: 'error', text: res.error || 'Unable to add category.' });
+                        return;
+                      }
+                      setCatFeedback({
+                        tone: 'success',
+                        text: `Added category "${res.category?.label}". Available immediately in Record Payment.`,
+                      });
+                      setCatLabel('');
+                      setCatDefaultStr('');
+                      setCatCommissionEligible(false);
+                      setTimeout(() => setCatFeedback(null), 3500);
+                    }}
+                    className="hig-btn-secondary whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="hig-card-inset p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="hig-subhead font-semibold text-[var(--ink-primary)]">
+                  Clean Sample Placeholder Contacts
+                </h3>
+                <p className="hig-caption mt-0.5">
+                  Strips any remaining synthetic seed phone numbers or @agbasaffys.ng/@adebayocourt.ng emails while preserving all units, tenancies, and payment ledger entries.
+                </p>
+                {cleanupResultMsg && (
+                  <p className="hig-caption mt-1 font-semibold" style={{ color: 'var(--status-success-ink)' }}>
+                    {cleanupResultMsg}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const res = cleanSampleTenantContacts();
+                  setCleanupResultMsg(
+                    res.cleanedCount > 0
+                      ? `Cleared placeholder contacts from ${res.cleanedCount} tenant(s).`
+                      : 'All tenant contact records are already clean (0 synthetic contacts found).'
+                  );
+                }}
+                className="hig-btn-secondary whitespace-nowrap shrink-0"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Clean Sample Contacts</span>
+              </button>
+            </div>
+          </section>
 
           {/* Email Client, AI & SMS Integration Status Card */}
           <div className="hig-card p-5 sm:p-6 space-y-4">

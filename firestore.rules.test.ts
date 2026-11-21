@@ -102,4 +102,15 @@ test('Dirty Dozen Invariants 1-12: Zero-Trust Eight Pillars structural security 
   assert.equal(rulesText.includes("'isNonPropertyOutgoing'"), true);
   assert.equal(rulesText.includes("'scopeLabel'"), true);
   assert.equal(rulesText.includes("'linkedExpenseId'"), true);
+
+  // 15. Custom payment categories, obligation category fields, and Prior Manager / Handover parity
+  assert.equal('categoryId' in blueprint.entities.ObligationRecord.properties, true);
+  assert.equal('categoryLabel' in blueprint.entities.ObligationRecord.properties, true);
+  assert.equal('commissionEligible' in blueprint.entities.ObligationRecord.properties, true);
+  assert.equal(rulesText.includes("'categoryId'"), true);
+  assert.equal(rulesText.includes("'categoryLabel'"), true);
+  assert.equal(rulesText.includes("'commissionEligible'"), true);
+  assert.equal(rulesText.includes("'customPaymentCategories'"), true);
+  assert.equal(rulesText.includes("'Prior Manager / Handover'"), true);
 });
+

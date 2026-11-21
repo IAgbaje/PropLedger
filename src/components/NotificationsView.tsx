@@ -33,7 +33,7 @@ import {
   verifyServerSmtp,
   type AiFollowUpSuggestion,
 } from '../utils/emailClient';
-import { formatDateTimeShort } from '../utils/format';
+import { formatDateTimeShort, formatTenantName, getTenantLegalName } from '../utils/format';
 import {
   extractBulkSmsDlrMatch,
   getSmsRecordCostNaira,
@@ -171,7 +171,7 @@ export function NotificationsView() {
           `${n.eventType} ${n.recipientName} ${n.recipientRole} ${n.recipientContact} ${
             n.subject || ''
           } ${n.messageBody} ${n.status} ${n.deliveryProvider || ''} ${
-            tenant ? `${tenant.firstName} ${tenant.lastName}` : ''
+            tenant ? `${formatTenantName(tenant)} ${tenant.alias || ''}` : ''
           } ${unit ? `${unit.code} ${unit.name}` : ''}`.toLowerCase();
         if (!searchable.includes(q)) return false;
       }
@@ -215,7 +215,7 @@ export function NotificationsView() {
           n.recipientName,
           n.recipientRole,
           n.recipientContact,
-          tenant ? `${tenant.firstName} ${tenant.lastName}` : '',
+          tenant ? formatTenantName(tenant) : '',
           unit?.code || '',
           n.channel,
           n.deliveryProvider || '',
@@ -478,7 +478,7 @@ export function NotificationsView() {
           const unit = state.units.find((u) => u.id === co.obligation.unitId);
           return {
             tenantId: co.obligation.tenantId,
-            tenantName: tenant ? `${tenant.firstName} ${tenant.lastName}` : '',
+            tenantName: tenant ? formatTenantName(tenant) : '',
             unitCode: unit?.code,
             period: co.obligation.rentalPeriodLabel,
             dueDate: co.obligation.dueDate,
@@ -494,7 +494,7 @@ export function NotificationsView() {
           const tenant = state.tenants.find((t) => t.id === ec.commitment.tenantId);
           return {
             tenantId: ec.commitment.tenantId,
-            tenantName: tenant ? `${tenant.firstName} ${tenant.lastName}` : '',
+            tenantName: tenant ? formatTenantName(tenant) : '',
             status: ec.effectiveStatus,
             promisedAmountNaira: ec.commitment.promisedAmount,
             paidSoFarNaira: ec.amountPaidTowardsObligations,
@@ -541,7 +541,9 @@ export function NotificationsView() {
       state.tenants.find(
         (t) =>
           t.id === s.targetId ||
-          `${t.firstName} ${t.lastName}`.toLowerCase() === s.recipientName.toLowerCase()
+          formatTenantName(t).toLowerCase() === s.recipientName.toLowerCase() ||
+          getTenantLegalName(t).toLowerCase() === s.recipientName.toLowerCase() ||
+          (t.alias && t.alias.toLowerCase() === s.recipientName.toLowerCase())
       ) || undefined;
     const matchedContact =
       !matchedTenant

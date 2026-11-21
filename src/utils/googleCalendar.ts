@@ -1,5 +1,5 @@
 import type { PaymentCommitment, PropertyProfile, Tenant, Unit } from '../types/rental';
-import { formatNaira } from './format';
+import { formatNaira, formatTenantName } from './format';
 import type { ComputedObligation } from './rentalEngine';
 
 export interface CalendarDueCandidate {
@@ -101,12 +101,12 @@ export function collectCalendarDueCandidates(params: {
       key: `obl:${co.obligation.id}`,
       kind: 'Obligation',
       tenantId: tenant.id,
-      tenantName: `${tenant.firstName} ${tenant.lastName}`,
+      tenantName: formatTenantName(tenant),
       tenantEmail: tenant.email,
       tenantPhone: tenant.phone,
       unitCode: unit.code,
       unitName: unit.name,
-      title: `${co.obligation.chargeType} Due: ${tenant.firstName} ${tenant.lastName} (${unit.code})`,
+      title: `${co.obligation.chargeType} Due: ${formatTenantName(tenant)} (${unit.code})`,
       periodLabel: co.obligation.rentalPeriodLabel,
       dueDate: co.obligation.dueDate,
       amount: co.amountOutstanding,
@@ -128,12 +128,12 @@ export function collectCalendarDueCandidates(params: {
       key: `cmt:${cmt.id}`,
       kind: 'Commitment',
       tenantId: tenant.id,
-      tenantName: `${tenant.firstName} ${tenant.lastName}`,
+      tenantName: formatTenantName(tenant),
       tenantEmail: tenant.email,
       tenantPhone: tenant.phone,
       unitCode: unit?.code || 'Unit',
       unitName: unit?.name || '',
-      title: `Promise to Pay Due: ${tenant.firstName} ${tenant.lastName}${unit ? ` (${unit.code})` : ''}`,
+      title: `Promise to Pay Due: ${formatTenantName(tenant)}${unit ? ` (${unit.code})` : ''}`,
       periodLabel: 'Payment Commitment Deadline',
       dueDate: effectiveDue,
       amount: cmt.promisedAmount,

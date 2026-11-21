@@ -90,6 +90,17 @@ export function sanitizeSystemSettings(settings: SystemSettings): SystemSettings
     autoSendCustomScheduled: Boolean(settings.autoSendCustomScheduled),
     autoSendArrearsEscalations: Boolean(settings.autoSendArrearsEscalations),
     smsUnitCostNaira: Math.max(0, Number(settings.smsUnitCostNaira) || 0),
+    customPaymentCategories: Array.isArray(settings.customPaymentCategories)
+      ? settings.customPaymentCategories.slice(0, 30).map((cat) => ({
+          id: truncateString(cat.id, 128),
+          label: truncateString(cat.label, 80),
+          commissionEligible: Boolean(cat.commissionEligible),
+          createdAt: truncateString(cat.createdAt || new Date().toISOString(), 40),
+          ...(typeof cat.defaultAmount === 'number' && Number.isFinite(cat.defaultAmount)
+            ? { defaultAmount: Math.max(0, cat.defaultAmount) }
+            : {}),
+        }))
+      : [],
   };
   if (settings.globalPauseReason !== undefined) {
     cleaned.globalPauseReason = truncateString(settings.globalPauseReason, 300);
@@ -128,8 +139,9 @@ export function sanitizeEntityForFirestore<T extends Record<string, unknown>>(
     case 'tenants':
       doc = {
         id: safeId,
-        firstName: truncateString(base.firstName, 80) || 'Tenant',
-        lastName: truncateString(base.lastName, 80) || '-',
+        firstName: truncateString(base.firstName, 80),
+        lastName: truncateString(base.lastName, 80),
+        alias: optStr(base.alias, 120),
         phone: truncateString(base.phone, 40),
         email: truncateString(base.email, 254),
         archived: Boolean(base.archived),
@@ -167,6 +179,10 @@ export function sanitizeEntityForFirestore<T extends Record<string, unknown>>(
         tenantId: truncateString(base.tenantId, 128),
         unitId: truncateString(base.unitId, 128),
         chargeType: base.chargeType,
+        categoryId: optStr(base.categoryId, 128),
+        categoryLabel: optStr(base.categoryLabel, 80),
+        commissionEligible:
+          typeof base.commissionEligible === 'boolean' ? base.commissionEligible : undefined,
         rentalPeriodLabel: truncateString(base.rentalPeriodLabel, 120) || 'Charge',
         originalAmount: Math.max(0, Number(base.originalAmount) || 0),
         dueDate: truncateString(base.dueDate, 20),

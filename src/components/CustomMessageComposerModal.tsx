@@ -26,7 +26,7 @@ import {
   sendEmailViaSmtp,
   sendSmsViaGateway,
 } from '../utils/emailClient';
-import { formatNaira } from '../utils/format';
+import { formatNaira, formatTenantName } from '../utils/format';
 import {
   calculateSmsSegments,
   interpolateTemplate,
@@ -77,6 +77,7 @@ interface DirectoryEntry {
   outstandingBalance?: number;
   dueDate?: string;
   firstName?: string;
+  alias?: string;
   notificationsPaused?: boolean;
   tenantId?: string;
 }
@@ -164,8 +165,9 @@ export function CustomMessageComposerModal() {
       entries.push({
         id: t.id,
         tenantId: t.id,
-        firstName: t.firstName,
-        name: `${t.firstName} ${t.lastName}`,
+        firstName: t.firstName?.trim() || t.alias?.trim() || t.lastName?.trim() || 'Tenant',
+        alias: t.alias,
+        name: formatTenantName(t),
         role: 'Tenant',
         email: t.email,
         phone: t.phone,
@@ -310,7 +312,7 @@ export function CustomMessageComposerModal() {
     const q = recipientSearch.trim().toLowerCase();
     if (!q) return directory;
     return directory.filter((d) =>
-      `${d.name} ${d.role} ${d.unitCode || ''} ${d.unitName || ''} ${d.email} ${d.phone}`
+      `${d.name} ${d.alias || ''} ${d.role} ${d.unitCode || ''} ${d.unitName || ''} ${d.email} ${d.phone}`
         .toLowerCase()
         .includes(q)
     );
@@ -409,7 +411,7 @@ export function CustomMessageComposerModal() {
       ? state.maintenance.find((m) => m.unitId === unitObj.id && m.status !== 'Resolved')
       : undefined;
     return {
-      firstName: rec.name.split(' ')[0] || rec.name,
+      firstName: dirMatch?.firstName || rec.name.split(' ')[0] || rec.name,
       fullName: rec.name,
       unitCode: rec.unitCode || dirMatch?.unitCode || '',
       unitName: dirMatch?.unitName || '',
@@ -1021,7 +1023,7 @@ export function CustomMessageComposerModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/45 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-2.5 sm:p-4 bg-black/45 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="custom-composer-title"
@@ -1834,44 +1836,58 @@ export function CustomMessageComposerModal() {
         </div>
 
         {/* Modal Footer */}
-        {!confirmingSend && (
-          <div className="px-4 sm:px-6 py-4 border-t border-[var(--border-subtle)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--bg-surface-secondary)]">
-            <span className="hig-footnote tabular-nums">
-              {scheduleMode === 'now'
-                ? `Ready: ${validEmailTargets.length} Email target(s) · ${validSmsTargets.length} SMS target(s)`
-                : `Schedule target: ${validEmailTargets.length} Email · ${validSmsTargets.length} SMS`}
-            </span>
+        {!confirmingSend && (() => {
+          const hasReachableTarget =
+            (needsEmail && validEmailTargets.length > 0) ||
+            (needsSms && validSmsTargets.length > 0);
+          return (
+            <div className="px-4 sm:px-6 py-4 border-t border-[var(--border-subtle)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--bg-surface-secondary)]">
+              <div className="space-y-0.5">
+                <span className="hig-footnote tabular-nums block">
+                  {scheduleMode === 'now'
+                    ? `Ready: ${validEmailTargets.length} Email target(s) · ${validSmsTargets.length} SMS target(s)`
+                    : `Schedule target: ${validEmailTargets.length} Email · ${validSmsTargets.length} SMS`}
+                </span>
+                {effectiveRecipients.length > 0 && !hasReachableTarget && (
+                  <span className="text-[12px] font-medium block" style={{ color: 'var(--status-danger-ink)' }}>
+                    No valid {channelMode === 'Both' ? 'phone or email' : channelMode.toLowerCase()} on file for the selected recipient(s). Add contact details or switch channels.
+                  </span>
+                )}
+              </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={() => setComposerOpen(false)}
-                className="hig-btn-secondary"
-              >
-                Cancel
-              </button>
-              {scheduleMode === 'later' ? (
+              <div className="flex flex-wrap items-center justify-end gap-2.5">
                 <button
                   type="button"
-                  onClick={() => void handleScheduleMessages()}
-                  className="hig-btn-primary"
+                  onClick={() => setComposerOpen(false)}
+                  className="hig-btn-secondary"
                 >
-                  <CalendarClock className="w-4 h-4" />
-                  <span>Schedule Message(s)</span>
+                  Cancel
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleOpenConfirmSend}
-                  className="hig-btn-primary"
-                >
-                  <Send className="w-4 h-4" />
-                  <span>Review & Send</span>
-                </button>
-              )}
+                {scheduleMode === 'later' ? (
+                  <button
+                    type="button"
+                    disabled={!hasReachableTarget}
+                    onClick={() => void handleScheduleMessages()}
+                    className="hig-btn-primary"
+                  >
+                    <CalendarClock className="w-4 h-4" />
+                    <span>Schedule Message(s)</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!hasReachableTarget}
+                    onClick={handleOpenConfirmSend}
+                    className="hig-btn-primary"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>Review & Send</span>
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );

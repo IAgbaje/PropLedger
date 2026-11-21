@@ -3,7 +3,7 @@ import { Pencil, Plus, Send, Trash2, X } from 'lucide-react';
 import { useRentalStore } from '../context/RentalStore';
 import type { RentCycle, UnitOccupancyStatus, UnitType } from '../types/rental';
 import { exportFilteredCsv } from '../utils/csvExport';
-import { formatDateShort, formatNaira, parseCurrencyValue } from '../utils/format';
+import { formatDateShort, formatNaira, formatTenantName, getTenantLegalName, parseCurrencyValue } from '../utils/format';
 import { buildAllTenantArrearsMap } from '../utils/multiYearArrears';
 import {
   filterAgreementsByQuery,
@@ -64,6 +64,7 @@ export function UnitsTenantsView() {
   const [existingTenantId, setExistingTenantId] = useState('');
   const [tFirst, setTFirst] = useState('');
   const [tLast, setTLast] = useState('');
+  const [tAlias, setTAlias] = useState('');
   const [tPhone, setTPhone] = useState('');
   const [tEmail, setTEmail] = useState('');
   const [agUnitId, setAgUnitId] = useState('');
@@ -115,6 +116,7 @@ export function UnitsTenantsView() {
       const tRes = createTenant({
         firstName: tFirst,
         lastName: tLast,
+        alias: tAlias,
         phone: tPhone,
         email: tEmail,
       });
@@ -150,6 +152,7 @@ export function UnitsTenantsView() {
 
     setTFirst('');
     setTLast('');
+    setTAlias('');
     setTPhone('');
     setTEmail('');
     setAgRent('');
@@ -192,20 +195,22 @@ export function UnitsTenantsView() {
     if (!t) return;
 
     const hasBal = Boolean(prof && prof.totalOutstanding > 0);
+    const tenantDisplayName = formatTenantName(t);
+    const tenantGreetingName = t.firstName?.trim() || t.alias?.trim() || t.lastName?.trim() || 'Tenant';
     openComposerFor({
       directoryRecipientIds: [`tenant:${t.id}`],
       linkedTenantId: t.id,
       channelMode: 'Both',
       intent: prof?.isMultiYear ? 'Multi-Year Arrears Notice' : 'Tenant Notice',
       subject: hasBal
-        ? `${prof?.isMultiYear ? 'Multi-Year Arrears Notice' : 'Balance Reminder'}: ${unit?.code || 'Unit'} — ${t.firstName} ${t.lastName}`
+        ? `${prof?.isMultiYear ? 'Multi-Year Arrears Notice' : 'Balance Reminder'}: ${unit?.code || 'Unit'} — ${tenantDisplayName}`
         : `Tenancy Update: ${unit?.code || 'Unit'} — ${state.property.name}`,
       emailBody: hasBal && prof
-        ? `Dear ${t.firstName} ${t.lastName},\n\nThis is a notice regarding your open balance at ${state.property.name} (${unit?.code || ''}) totaling ${formatNaira(prof.totalOutstanding)} (Rent: ${formatNaira(prof.unpaidRentAmount)}, Security Levy: ${formatNaira(prof.unpaidLevyAmount)}).\n\nKindly settle and confirm receipt with ${state.property.managerName}.\n\nRegards,\n${state.property.managerName}`
-        : `Dear ${t.firstName} ${t.lastName},\n\nWriting from ${state.property.name} management regarding ${unit?.code || 'your tenancy'}.\n\nRegards,\n${state.property.managerName}`,
+        ? `Dear ${tenantDisplayName},\n\nThis is a notice regarding your open balance at ${state.property.name} (${unit?.code || ''}) totaling ${formatNaira(prof.totalOutstanding)} (Rent: ${formatNaira(prof.unpaidRentAmount)}, Security Levy: ${formatNaira(prof.unpaidLevyAmount)}${prof.unpaidOtherAmount > 0 ? `, Other Charges: ${formatNaira(prof.unpaidOtherAmount)}` : ''}).\n\nKindly settle and confirm receipt with ${state.property.managerName}.\n\nRegards,\n${state.property.managerName}`
+        : `Dear ${tenantDisplayName},\n\nWriting from ${state.property.name} management regarding ${unit?.code || 'your tenancy'}.\n\nRegards,\n${state.property.managerName}`,
       smsBody: hasBal && prof
-        ? `${state.property.name}: Dear ${t.firstName}, your ${unit?.code || ''} balance is ${formatNaira(prof.totalOutstanding)}. Kindly remit & notify ${state.property.managerName}.`
-        : `${state.property.name}: Hello ${t.firstName}, please contact ${state.property.managerName} regarding ${unit?.code || 'your unit'}.`,
+        ? `${state.property.name}: Dear ${tenantGreetingName}, your ${unit?.code || ''} balance is ${formatNaira(prof.totalOutstanding)}. Kindly remit & notify ${state.property.managerName}.`
+        : `${state.property.name}: Hello ${tenantGreetingName}, please contact ${state.property.managerName} regarding ${unit?.code || 'your unit'}.`,
     });
   };
 
@@ -215,6 +220,7 @@ export function UnitsTenantsView() {
         `propledger-tenants-${state.referenceDate}.csv`,
         [
           'Tenant Name',
+          'Alias',
           'Phone',
           'Email',
           'Active Unit Code',
@@ -228,6 +234,7 @@ export function UnitsTenantsView() {
           'Annual Rent (NGN)',
           'Rent Outstanding (NGN)',
           'Levy Outstanding (NGN)',
+          'Other Charges Outstanding (NGN)',
           'Total Outstanding (NGN)',
         ],
         filteredTenants.map((t) => {
@@ -237,7 +244,8 @@ export function UnitsTenantsView() {
           const unit = activeAg ? state.units.find((u) => u.id === activeAg.unitId) : undefined;
           const prof = arrearsMap[t.id];
           return [
-            `${t.firstName} ${t.lastName}`,
+            getTenantLegalName(t) || t.alias || 'Unknown Tenant',
+            t.alias || '',
             t.phone,
             t.email,
             unit?.code || '',
@@ -251,6 +259,7 @@ export function UnitsTenantsView() {
             activeAg ? activeAg.agreedRent : 0,
             prof?.unpaidRentAmount || 0,
             prof?.unpaidLevyAmount || 0,
+            prof?.unpaidOtherAmount || 0,
             prof?.totalOutstanding || 0,
           ];
         })
@@ -272,7 +281,7 @@ export function UnitsTenantsView() {
             u.name,
             u.type,
             u.floorOrWing,
-            tenant ? `${tenant.firstName} ${tenant.lastName}` : 'Unoccupied',
+            tenant ? formatTenantName(tenant) : 'Unoccupied',
             u.occupancyStatus,
           ];
         })
@@ -299,7 +308,7 @@ export function UnitsTenantsView() {
         return [
           unit?.code || '',
           unit?.name || '',
-          tenant ? `${tenant.firstName} ${tenant.lastName}` : '',
+          tenant ? formatTenantName(tenant) : '',
           ag.startDate,
           ag.endDate,
           ag.rentCycle,
@@ -465,13 +474,18 @@ export function UnitsTenantsView() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <span className="font-semibold text-[1rem] text-[var(--ink-primary)] block truncate">
-                          {t.firstName} {t.lastName}
+                          {getTenantLegalName(t) || t.alias || 'Unknown Tenant'}
                         </span>
+                        {getTenantLegalName(t) && t.alias?.trim() && (
+                          <span className="hig-caption font-medium text-[var(--ink-secondary)] block truncate">
+                            aka &ldquo;{t.alias.trim()}&rdquo;
+                          </span>
+                        )}
                         <span className="hig-caption block truncate">
                           {unit ? `${unit.code} · ${unit.name} (${unit.type})` : 'No active lease'}
                         </span>
                         <span className="hig-caption font-mono-nums block truncate mt-0.5">
-                          {t.phone}
+                          {t.phone || t.email || 'No contact on file'}
                         </span>
                       </div>
                       <div className="text-right shrink-0">
@@ -510,7 +524,7 @@ export function UnitsTenantsView() {
                         type="button"
                         onClick={() => handleOpenTenantComposer(t.id)}
                         className="hig-btn-secondary w-full"
-                        title={`Send SMS or Email to ${t.firstName} ${t.lastName}`}
+                        title={`Send SMS or Email to ${formatTenantName(t)}`}
                       >
                         <Send className="w-4 h-4" />
                         <span>Message</span>
@@ -526,7 +540,7 @@ export function UnitsTenantsView() {
                         type="button"
                         onClick={() => setEditingTenantId(t.id)}
                         className="hig-btn-secondary w-full"
-                        aria-label={`Edit ${t.firstName} ${t.lastName}`}
+                        aria-label={`Edit ${formatTenantName(t)}`}
                       >
                         <Pencil className="w-4 h-4" />
                         <span>Edit</span>
@@ -536,7 +550,7 @@ export function UnitsTenantsView() {
                         onClick={() => setDeletingTenantId(t.id)}
                         className="hig-btn-secondary w-full"
                         style={{ color: 'var(--status-danger-ink)' }}
-                        aria-label={`Delete ${t.firstName} ${t.lastName}`}
+                        aria-label={`Delete ${formatTenantName(t)}`}
                       >
                         <Trash2 className="w-4 h-4" />
                         <span>Delete</span>
@@ -604,8 +618,13 @@ export function UnitsTenantsView() {
                         >
                           <td className="py-3.5 pl-4 pr-2 max-w-[185px]">
                             <span className="font-medium text-[var(--ink-primary)] block break-words">
-                              {t.firstName} {t.lastName}
+                              {getTenantLegalName(t) || t.alias || 'Unknown Tenant'}
                             </span>
+                            {getTenantLegalName(t) && t.alias?.trim() && (
+                              <span className="hig-caption font-medium text-[var(--ink-secondary)] block truncate">
+                                aka &ldquo;{t.alias.trim()}&rdquo;
+                              </span>
+                            )}
                             <div className="flex items-center gap-1 flex-wrap mt-1">
                               {prof?.isMultiYear && (
                                 <span
@@ -642,8 +661,12 @@ export function UnitsTenantsView() {
                             )}
                           </td>
                           <td className="py-3.5 px-2.5 text-[var(--ink-secondary)] max-w-[155px]">
-                            <span className="block font-mono-nums text-[0.78125rem] truncate">{t.phone}</span>
-                            <span className="block hig-caption truncate" title={t.email}>{t.email}</span>
+                            <span className="block font-mono-nums text-[0.78125rem] truncate">
+                              {t.phone || 'No phone'}
+                            </span>
+                            <span className="block hig-caption truncate" title={t.email || 'No email'}>
+                              {t.email || 'No email'}
+                            </span>
                           </td>
                           <td className="py-3.5 px-2.5 max-w-[115px] whitespace-normal">
                             <StatusBadge label={behaviour} wrap />
@@ -668,6 +691,7 @@ export function UnitsTenantsView() {
                               <span className="text-[0.72rem] leading-tight text-[var(--ink-tertiary)] font-mono-nums block">
                                 Rent {formatNaira(prof.unpaidRentAmount)}
                                 {prof.unpaidLevyAmount > 0 ? ` + Levy ${formatNaira(prof.unpaidLevyAmount)}` : ''}
+                                {prof.unpaidOtherAmount > 0 ? ` + Other ${formatNaira(prof.unpaidOtherAmount)}` : ''}
                               </span>
                             )}
                           </td>
@@ -677,8 +701,8 @@ export function UnitsTenantsView() {
                                 type="button"
                                 onClick={() => setEditingTenantId(t.id)}
                                 className="hig-touch-icon !min-w-[36px] !min-h-[36px]"
-                                aria-label={`Edit ${t.firstName} ${t.lastName}`}
-                                title={`Edit ${t.firstName} ${t.lastName}`}
+                                aria-label={`Edit ${formatTenantName(t)}`}
+                                title={`Edit ${formatTenantName(t)}`}
                               >
                                 <Pencil className="w-4 h-4" />
                               </button>
@@ -687,8 +711,8 @@ export function UnitsTenantsView() {
                                 onClick={() => setDeletingTenantId(t.id)}
                                 className="hig-touch-icon !min-w-[36px] !min-h-[36px]"
                                 style={{ color: 'var(--status-danger-ink)' }}
-                                aria-label={`Delete ${t.firstName} ${t.lastName}`}
-                                title={`Delete ${t.firstName} ${t.lastName}`}
+                                aria-label={`Delete ${formatTenantName(t)}`}
+                                title={`Delete ${formatTenantName(t)}`}
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -696,7 +720,7 @@ export function UnitsTenantsView() {
                                 type="button"
                                 onClick={() => handleOpenTenantComposer(t.id)}
                                 className="hig-btn-secondary !min-h-[38px] !px-2.5 !text-[0.8125rem] whitespace-nowrap"
-                                title={`Send SMS or Email to ${t.firstName} ${t.lastName}`}
+                                title={`Send SMS or Email to ${formatTenantName(t)}`}
                               >
                                 <Send className="w-3.5 h-3.5 shrink-0" />
                                 <span>Message</span>
@@ -757,7 +781,7 @@ export function UnitsTenantsView() {
                           onClick={() => setSelectedTenantIdForDrawer(tenant.id)}
                           className="text-[0.875rem] font-medium text-[var(--accent-ink)] hover:underline min-h-[44px]"
                         >
-                          {tenant.firstName} {tenant.lastName}
+                          {formatTenantName(tenant)}
                         </button>
                       ) : (
                         <span className="hig-caption">Unoccupied</span>
@@ -860,7 +884,7 @@ export function UnitsTenantsView() {
                                 onClick={() => setSelectedTenantIdForDrawer(tenant.id)}
                                 className="font-medium text-[var(--ink-primary)] hover:underline min-h-[44px] text-left"
                               >
-                                {tenant.firstName} {tenant.lastName}
+                                {formatTenantName(tenant)}
                               </button>
                             ) : (
                               <span className="hig-caption">Unoccupied</span>
@@ -939,7 +963,7 @@ export function UnitsTenantsView() {
                           onClick={() => tenant && setSelectedTenantIdForDrawer(tenant.id)}
                           className="hig-footnote text-[var(--accent-ink)] hover:underline min-h-[36px]"
                         >
-                          {tenant?.firstName} {tenant?.lastName}
+                          {tenant ? formatTenantName(tenant) : ''}
                         </button>
                       </div>
                       <StatusBadge label={ag.status} />
@@ -1009,7 +1033,7 @@ export function UnitsTenantsView() {
                               onClick={() => tenant && setSelectedTenantIdForDrawer(tenant.id)}
                               className="text-[var(--ink-primary)] hover:underline font-medium min-h-[44px]"
                             >
-                              {tenant?.firstName} {tenant?.lastName}
+                              {tenant ? formatTenantName(tenant) : ''}
                             </button>
                           </td>
                           <td className="py-3.5 px-4 text-[var(--ink-secondary)] tabular-nums">
@@ -1210,42 +1234,67 @@ export function UnitsTenantsView() {
               {tenancyMode === 'new-tenant' ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block hig-caption mb-1.5">First Name</label>
+                    <label htmlFor="new-tenant-first" className="block hig-caption mb-1.5">
+                      First Name
+                    </label>
                     <input
+                      id="new-tenant-first"
                       type="text"
                       value={tFirst}
                       onChange={(e) => setTFirst(e.target.value)}
+                      placeholder="Optional if alias entered"
                       className="hig-input w-full"
-                      required
                     />
                   </div>
                   <div>
-                    <label className="block hig-caption mb-1.5">Last Name</label>
+                    <label htmlFor="new-tenant-last" className="block hig-caption mb-1.5">
+                      Last Name
+                    </label>
                     <input
+                      id="new-tenant-last"
                       type="text"
                       value={tLast}
                       onChange={(e) => setTLast(e.target.value)}
+                      placeholder="Optional if alias entered"
                       className="hig-input w-full"
-                      required
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label htmlFor="new-tenant-alias" className="block hig-caption mb-1.5">
+                      Alias / Known As (Optional)
+                    </label>
+                    <input
+                      id="new-tenant-alias"
+                      type="text"
+                      value={tAlias}
+                      onChange={(e) => setTAlias(e.target.value)}
+                      placeholder="e.g. Mama T, Baba Ibeji, Iya Risi"
+                      className="hig-input w-full"
                     />
                   </div>
                   <div>
-                    <label className="block hig-caption mb-1.5">Phone</label>
+                    <label htmlFor="new-tenant-phone" className="block hig-caption mb-1.5">
+                      Phone (Optional)
+                    </label>
                     <input
+                      id="new-tenant-phone"
                       type="text"
                       value={tPhone}
                       onChange={(e) => setTPhone(e.target.value)}
-                      placeholder="+234 80..."
+                      placeholder="Optional (+234 80...)"
                       className="hig-input w-full"
-                      required
                     />
                   </div>
                   <div>
-                    <label className="block hig-caption mb-1.5">Email</label>
+                    <label htmlFor="new-tenant-email" className="block hig-caption mb-1.5">
+                      Email (Optional)
+                    </label>
                     <input
+                      id="new-tenant-email"
                       type="email"
                       value={tEmail}
                       onChange={(e) => setTEmail(e.target.value)}
+                      placeholder="Optional"
                       className="hig-input w-full"
                     />
                   </div>
@@ -1260,7 +1309,7 @@ export function UnitsTenantsView() {
                   >
                     {state.tenants.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.firstName} {t.lastName} ({t.phone})
+                        {formatTenantName(t)} ({t.phone || t.email || 'No contact on file'})
                       </option>
                     ))}
                   </select>

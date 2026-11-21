@@ -152,3 +152,81 @@ test('chart aggregators compute monthly rent collections and Shops vs Apartments
   assert.equal(contrib[1].segment, 'Shops, Kiosks & Containers');
   assert.equal(contrib[1].unitCount, 1);
 });
+
+test('analyzeTenantArrears separates Rent, Security Levy, and custom Other Charge obligations distinctly', () => {
+  const obs: RentalObligation[] = [
+    {
+      id: 'ob-rent-only',
+      agreementId: 'ag-9',
+      tenantId: 't-sep',
+      unitId: 'u-9',
+      chargeType: 'Rent',
+      rentalPeriodLabel: '2026 Annual Rent',
+      originalAmount: 60000,
+      dueDate: '2026-01-31',
+      underReview: false,
+      createdAt: '2026-01-01T00:00:00Z',
+    },
+    {
+      id: 'ob-levy-only',
+      agreementId: 'ag-9',
+      tenantId: 't-sep',
+      unitId: 'u-9',
+      chargeType: 'Security Levy',
+      rentalPeriodLabel: '2026 Security Levy',
+      originalAmount: 4000,
+      dueDate: '2026-01-31',
+      underReview: false,
+      createdAt: '2026-01-01T00:00:00Z',
+    },
+    {
+      id: 'ob-custom',
+      agreementId: 'ag-9',
+      tenantId: 't-sep',
+      unitId: 'u-9',
+      chargeType: 'Other Charge',
+      categoryLabel: 'Borehole & Sanitation',
+      rentalPeriodLabel: '2026 Borehole & Sanitation',
+      originalAmount: 5000,
+      dueDate: '2026-01-31',
+      underReview: false,
+      createdAt: '2026-01-01T00:00:00Z',
+    },
+  ];
+  // Suppose Rent is fully paid (₦60k), while Security Levy & Borehole remain unpaid
+  const computed = obs.map((o) =>
+    computeObligation(
+      o,
+      [
+        {
+          id: 'p-rent',
+          systemRef: 'PAY-SEP-1',
+          tenantId: 't-sep',
+          agreementId: 'ag-9',
+          unitId: 'u-9',
+          amount: 60000,
+          dateReceived: '2026-01-20',
+          dateRecorded: '2026-01-20T10:00:00Z',
+          method: 'Bank Transfer',
+          bankReference: 'REF-1',
+          status: 'Confirmed',
+          allocations: [{ obligationId: 'ob-rent-only', amount: 60000 }],
+          unappliedAmount: 0,
+          notes: '',
+          recordedBy: 'Manager',
+        },
+      ],
+      '2026-11-18',
+      7
+    )
+  );
+  const profile = analyzeTenantArrears('t-sep', computed);
+  assert.equal(profile.unpaidRentAmount, 0);
+  assert.equal(profile.unpaidLevyAmount, 4000);
+  assert.equal(profile.unpaidOtherAmount, 5000);
+  assert.equal(profile.unpaidOtherCycles.length, 1);
+  assert.equal(profile.unpaidOtherCycles[0].categoryLabel, 'Borehole & Sanitation');
+  assert.equal(profile.hasUnpaidSecurityLevy, true);
+  assert.equal(profile.totalOutstanding, 9000);
+});
+

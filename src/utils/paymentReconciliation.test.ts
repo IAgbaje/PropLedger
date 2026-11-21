@@ -7,6 +7,7 @@ import {
   applyPaymentEdit,
   deriveRentYearLabel,
   getEffectivePaymentRentYear,
+  getObligationCategoryLabel,
   getObligationReconciliationPool,
   normalizeTimeReceived,
 } from './paymentReconciliation';
@@ -243,3 +244,47 @@ test('applyCreateCycleObligation creates a 2027 pre-cycle rent obligation for re
   );
   assert.equal(sholankeYear, '2025');
 });
+
+test('applyCreateCycleObligation supports levy-only and custom category obligations with getObligationCategoryLabel', () => {
+  const levyRes = applyCreateCycleObligation(
+    SEED_STATE,
+    {
+      agreementId: 'ag-1',
+      cycleYear: '2024',
+      categoryMode: 'levy-only',
+      levyAmount: 4000,
+      dueDate: '2024-01-31',
+    },
+    testIdGen
+  );
+  assert.equal(levyRes.ok, true);
+  if (!levyRes.ok) return;
+  assert.equal(levyRes.createdObligationIds.length, 1);
+  const levyOb = levyRes.nextState.obligations.find((o) => o.id === levyRes.createdObligationIds[0]);
+  assert.ok(levyOb);
+  assert.equal(levyOb.chargeType, 'Security Levy');
+  assert.equal(getObligationCategoryLabel(levyOb), 'Security Levy');
+
+  const customRes = applyCreateCycleObligation(
+    levyRes.nextState,
+    {
+      agreementId: 'ag-1',
+      cycleYear: '2026',
+      categoryMode: 'custom',
+      categoryId: 'cat-gen',
+      categoryLabel: 'Generator Diesel Levy',
+      commissionEligible: true,
+      customAmount: 15000,
+      dueDate: '2026-06-01',
+    },
+    testIdGen
+  );
+  assert.equal(customRes.ok, true);
+  if (!customRes.ok) return;
+  const customOb = customRes.nextState.obligations.find((o) => o.id === customRes.createdObligationIds[0]);
+  assert.ok(customOb);
+  assert.equal(customOb.chargeType, 'Other Charge');
+  assert.equal(customOb.commissionEligible, true);
+  assert.equal(getObligationCategoryLabel(customOb), 'Generator Diesel Levy');
+});
+

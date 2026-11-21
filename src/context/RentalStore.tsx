@@ -9,8 +9,10 @@ import type {
   CommissionRecord,
   MaintenanceRecord,
   NotificationRecord,
+  ObligationChargeType,
   Payment,
   PaymentAllocation,
+  PaymentCategoryDefinition,
   PaymentCommitment,
   PaymentMethod,
   PropertyExpense,
@@ -29,6 +31,7 @@ import type {
   UnitType,
 } from '../types/rental';
 import { sendEmailViaSmtp, sendSmsViaGateway } from '../utils/emailClient';
+import { formatTenantName } from '../utils/format';
 import { isScheduleDue, isWithinQuietHours } from '../utils/messaging';
 import { getSmsRecordCostNaira, getSmsRecordUnits } from '../utils/smsAnalytics';
 import {
@@ -50,7 +53,7 @@ import {
   seedWorkspaceSubcollections,
   syncWorkspaceDeltaToFirestore,
 } from '../lib/firestoreLedger';
-import { hydrateRentalState } from '../utils/stateHydration';
+import { hydrateRentalState, stripSyntheticTenantContacts } from '../utils/stateHydration';
 import {
   applyEditExpense,
   applyEditMaintenance,
@@ -220,13 +223,14 @@ interface RentalContextValue {
   createTenant: (input: {
     firstName: string;
     lastName: string;
+    alias?: string;
     phone: string;
     email: string;
     notes?: string;
   }) => { ok: boolean; tenantId?: string; error?: string };
   updateTenant: (
     tenantId: string,
-    patch: Partial<Pick<Tenant, 'firstName' | 'lastName' | 'phone' | 'email' | 'notes' | 'archived'>>
+    patch: Partial<Pick<Tenant, 'firstName' | 'lastName' | 'alias' | 'phone' | 'email' | 'notes' | 'archived'>>
   ) => void;
   updateTenantDetailsAndOccupancy: (
     tenantId: string,
@@ -274,9 +278,20 @@ interface RentalContextValue {
     allocations: PaymentAllocation[];
     notes: string;
     simulateNotificationFailure?: boolean;
+    inlineObligation?: {
+      chargeType: ObligationChargeType;
+      categoryId?: string;
+      categoryLabel?: string;
+      commissionEligible?: boolean;
+      cycleYear: string;
+      rentalPeriodLabel: string;
+      originalAmount: number;
+      dueDate: string;
+    };
   }) => {
     ok: boolean;
     paymentId?: string;
+    systemRef?: string;
     createdNotifications?: NotificationRecord[];
     error?: string;
     duplicateWarning?: boolean;
@@ -355,6 +370,13 @@ interface RentalContextValue {
   ) => { paymentsImported: number; skippedUnmatched: number; totalAmount: number };
   updateSettings: (patch: Partial<SystemSettings>, reason?: string) => void;
   updatePropertyProfile: (patch: Partial<PropertyProfile>) => void;
+  addCustomPaymentCategory: (input: {
+    label: string;
+    defaultAmount?: number;
+    commissionEligible: boolean;
+  }) => { ok: boolean; category?: PaymentCategoryDefinition; error?: string };
+  deleteCustomPaymentCategory: (categoryId: string) => void;
+  cleanSampleTenantContacts: () => { cleanedCount: number };
   saveSmsTemplate: (
     input: Omit<SmsTemplate, 'id' | 'updatedAt'> & { id?: string }
   ) => { ok: boolean; id?: string; error?: string };
@@ -716,16 +738,17 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
   };
 
   const createTenant: RentalContextValue['createTenant'] = (input) => {
-    if (!input.firstName.trim() || !input.lastName.trim()) {
-      return { ok: false, error: 'First and last name are required.' };
-    }
-    if (!input.phone.trim() && !input.email.trim()) {
-      return { ok: false, error: 'Provide at least a phone number or email address.' };
+    const first = input.firstName.trim();
+    const last = input.lastName.trim();
+    const alias = input.alias?.trim() || '';
+    if (!first && !last && !alias) {
+      return { ok: false, error: 'Enter at least a name or an alias for this tenant.' };
     }
     const newTenant: Tenant = {
       id: uid('t'),
-      firstName: input.firstName.trim(),
-      lastName: input.lastName.trim(),
+      firstName: first,
+      lastName: last,
+      alias: alias || undefined,
       phone: input.phone.trim(),
       email: input.email.trim(),
       archived: false,
@@ -734,6 +757,8 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
       notes: input.notes?.trim(),
     };
+    const contactSummary =
+      [newTenant.phone, newTenant.email].filter(Boolean).join(' · ') || 'No contact on file';
     setState((prev) => ({
       ...prev,
       tenants: [...prev.tenants, newTenant],
@@ -743,8 +768,8 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
           'Tenant',
           newTenant.id,
           'Tenant Created',
-          `Created tenant record for ${newTenant.firstName} ${newTenant.lastName}.`,
-          { newValue: `${newTenant.phone} · ${newTenant.email}` }
+          `Created tenant record for ${formatTenantName(newTenant)}.`,
+          { newValue: contactSummary }
         ),
         ...prev.auditLogs,
       ],
@@ -765,7 +790,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
             'Tenant',
             tenantId,
             patch.archived ? 'Tenant Archived' : 'Tenant Updated',
-            `Updated details for ${target.firstName} ${target.lastName}.`,
+            `Updated details for ${formatTenantName(target)}.`,
             { previousValue: `${target.phone}`, newValue: `${patch.phone ?? target.phone}` }
           ),
           ...prev.auditLogs,
@@ -838,7 +863,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
             'Tenant',
             tenantId,
             paused ? 'Notifications Paused' : 'Notifications Resumed',
-            `${paused ? 'Paused' : 'Resumed'} external reminders for ${target.firstName} ${target.lastName}.`,
+            `${paused ? 'Paused' : 'Resumed'} external reminders for ${formatTenantName(target)}.`,
             {
               previousValue: String(target.notificationsPaused),
               newValue: String(paused),
@@ -872,7 +897,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
             'Tenant',
             tenantId,
             'Behaviour Indicator Overridden',
-            `Updated payment behaviour indicator for ${target.firstName} ${target.lastName} to ${indicator ?? 'Auto-calculated'}.`,
+            `Updated payment behaviour indicator for ${formatTenantName(target)} to ${indicator ?? 'Auto-calculated'}.`,
             {
               previousValue: target.behaviourOverride ?? 'Auto',
               newValue: indicator ?? 'Auto',
@@ -959,7 +984,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
             'Agreement',
             agId,
             'Agreement Created',
-            `Created active ${input.rentCycle} agreement for ${tenant?.firstName} ${tenant?.lastName} on ${unit?.code} (₦${input.agreedRent.toLocaleString()}).`,
+            `Created active ${input.rentCycle} agreement for ${formatTenantName(tenant)} on ${unit?.code} (₦${input.agreedRent.toLocaleString()}).`,
             {
               newValue: `Rent ₦${input.agreedRent.toLocaleString()} · Due ${input.dueDate}`,
               reason: input.exceptionNote,
@@ -1042,7 +1067,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
             'Agreement',
             newAgId,
             'Agreement Renewed',
-            `Renewed tenancy for ${tenant?.firstName} ${tenant?.lastName} (${unit?.code}). Historical terms preserved on ${oldAg.id}.`,
+            `Renewed tenancy for ${formatTenantName(tenant)} (${unit?.code}). Historical terms preserved on ${oldAg.id}.`,
             {
               previousValue: `₦${oldAg.agreedRent.toLocaleString()} (${oldAg.startDate} to ${oldAg.endDate})`,
               newValue: `₦${input.agreedRent.toLocaleString()} (${input.startDate} to ${input.endDate})`,
@@ -1088,32 +1113,113 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
   };
 
   const recordPayment: RentalContextValue['recordPayment'] = (input) => {
-    if (input.amount <= 0) {
+    if (!Number.isFinite(input.amount) || input.amount <= 0) {
       return { ok: false, error: 'Payment amount must be greater than ₦0.' };
     }
     const timeCheck = normalizeTimeReceived(input.timeReceived);
     if (!timeCheck.ok) {
       return { ok: false, error: timeCheck.error };
     }
-    const allocatedTotal = input.allocations.reduce((s, a) => s + a.amount, 0);
-    if (allocatedTotal > input.amount + 0.01) {
-      return { ok: false, error: 'Allocated total cannot exceed payment amount.' };
-    }
 
-    const agreement = state.agreements.find((a) => a.id === input.agreementId);
-    const tenant = state.tenants.find((t) => t.id === input.tenantId);
+    const current = stateRef.current;
+    const agreement = current.agreements.find((a) => a.id === input.agreementId);
+    const tenant = current.tenants.find((t) => t.id === input.tenantId);
     if (!agreement || !tenant) {
       return { ok: false, error: 'Select a valid tenant and tenancy agreement.' };
     }
 
-    const isDuplicate = checkDuplicateBankReference(input.bankReference, state.payments);
+    let baseObligations = current.obligations;
+    let cleanAllocations = input.allocations
+      .filter((a) => Number.isFinite(a.amount) && a.amount > 0)
+      .map((a) => ({
+        obligationId: a.obligationId,
+        amount: Math.round(a.amount * 100) / 100,
+      }));
+
+    let inlineCreatedSummary: string | undefined;
+    if (input.inlineObligation) {
+      const inline = input.inlineObligation;
+      const labelTrim = inline.rentalPeriodLabel.trim();
+      if (!labelTrim) {
+        return { ok: false, error: 'Enter a label for the obligation being recorded.' };
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(inline.dueDate.trim())) {
+        return { ok: false, error: 'Valid due date (YYYY-MM-DD) is required for the obligation.' };
+      }
+      const normalizedChargeAmount = Math.max(
+        0,
+        Math.round((Number(inline.originalAmount) || 0) * 100) / 100
+      );
+      if (normalizedChargeAmount <= 0) {
+        return { ok: false, error: 'Expected obligation amount must be greater than ₦0.' };
+      }
+
+      const existingMatch = baseObligations.find(
+        (o) =>
+          o.agreementId === agreement.id &&
+          o.chargeType === inline.chargeType &&
+          o.rentalPeriodLabel.trim().toLowerCase() === labelTrim.toLowerCase()
+      );
+
+      let targetOb: RentalObligation;
+      if (existingMatch) {
+        targetOb = existingMatch;
+      } else {
+        targetOb = {
+          id: uid('ob'),
+          agreementId: agreement.id,
+          tenantId: tenant.id,
+          unitId: agreement.unitId,
+          chargeType: inline.chargeType,
+          ...(inline.categoryId?.trim() ? { categoryId: inline.categoryId.trim() } : {}),
+          ...(inline.categoryLabel?.trim() ? { categoryLabel: inline.categoryLabel.trim() } : {}),
+          ...(inline.chargeType === 'Other Charge'
+            ? { commissionEligible: Boolean(inline.commissionEligible) }
+            : {}),
+          rentalPeriodLabel: labelTrim,
+          originalAmount: normalizedChargeAmount,
+          dueDate: inline.dueDate.trim(),
+          underReview: false,
+          createdAt: new Date().toISOString(),
+        };
+        baseObligations = [...baseObligations, targetOb];
+        inlineCreatedSummary = `${targetOb.rentalPeriodLabel} (₦${targetOb.originalAmount.toLocaleString()})`;
+      }
+
+      const alreadyPaidOnTarget = computeObligation(
+        targetOb,
+        current.payments,
+        current.referenceDate,
+        current.settings.gracePeriodDays
+      ).amountAllocated;
+      const availableCapacity = Math.max(
+        0,
+        Math.round((targetOb.originalAmount - alreadyPaidOnTarget) * 100) / 100
+      );
+      const allocAmt = Math.min(input.amount, availableCapacity);
+      cleanAllocations =
+        allocAmt > 0
+          ? [{ obligationId: targetOb.id, amount: Math.round(allocAmt * 100) / 100 }]
+          : [];
+    }
+
+    const allocatedTotal = cleanAllocations.reduce((s, a) => s + a.amount, 0);
+    if (allocatedTotal > input.amount + 0.01) {
+      return { ok: false, error: 'Allocated total cannot exceed payment amount.' };
+    }
+
+    const isDuplicate = checkDuplicateBankReference(input.bankReference, current.payments);
     const payId = uid('pay');
-    const sysRef = `PAY-2026-${String(state.payments.length + 45).padStart(4, '0')}`;
+    let seqNum = current.payments.length + 45;
+    const existingRefs = new Set(current.payments.map((p) => p.systemRef));
+    while (existingRefs.has(`PAY-2026-${String(seqNum).padStart(4, '0')}`)) {
+      seqNum += 1;
+    }
+    const sysRef = `PAY-2026-${String(seqNum).padStart(4, '0')}`;
     const unappliedAmount = Math.max(0, Math.round((input.amount - allocatedTotal) * 100) / 100);
-    const cleanAllocations = input.allocations.filter((a) => a.amount > 0);
     const resolvedRentYear =
       input.rentYearCovered?.trim() ||
-      deriveRentYearLabel(cleanAllocations, state.obligations, input.dateReceived);
+      deriveRentYearLabel(cleanAllocations, baseObligations, input.dateReceived);
 
     const newPayment: Payment = {
       id: payId,
@@ -1121,7 +1227,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       tenantId: input.tenantId,
       agreementId: input.agreementId,
       unitId: agreement.unitId,
-      amount: input.amount,
+      amount: Math.round(input.amount * 100) / 100,
       dateReceived: input.dateReceived,
       ...(timeCheck.value ? { timeReceived: timeCheck.value } : {}),
       dateRecorded: new Date().toISOString(),
@@ -1132,39 +1238,39 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       unappliedAmount,
       rentYearCovered: resolvedRentYear,
       notes: input.notes.trim(),
-      recordedBy: state.property.managerName,
+      recordedBy: current.property.managerName,
       duplicateFlag: isDuplicate,
     };
 
     const primaryIssuer =
-      state.contacts.find((c) => c.role === 'Receipt Issuer' && c.isPrimaryReceiptIssuer) ||
-      state.contacts.find((c) => c.role === 'Receipt Issuer');
+      current.contacts.find((c) => c.role === 'Receipt Issuer' && c.isPrimaryReceiptIssuer) ||
+      current.contacts.find((c) => c.role === 'Receipt Issuer');
 
-    const unit = state.units.find((u) => u.id === agreement.unitId);
-    const allocatedObligations = state.obligations.filter((o) =>
+    const unit = current.units.find((u) => u.id === agreement.unitId);
+    const allocatedObligations = baseObligations.filter((o) =>
       newPayment.allocations.some((a) => a.obligationId === o.id)
     );
     const periodCovered =
       allocatedObligations.map((o) => o.rentalPeriodLabel).join(', ') ||
       (resolvedRentYear ? `${resolvedRentYear} Unapplied Credit` : 'Unapplied Credit');
     const securityLevyIncluded = newPayment.allocations.reduce((sum, a) => {
-      const ob = state.obligations.find((o) => o.id === a.obligationId);
+      const ob = baseObligations.find((o) => o.id === a.obligationId);
       return ob?.chargeType === 'Security Levy' ? sum + a.amount : sum;
     }, 0);
 
-    const updatedPayments = [...state.payments, newPayment];
-    const remainingForAgreement = state.obligations
+    const updatedPayments = [newPayment, ...current.payments];
+    const remainingForAgreement = baseObligations
       .filter((o) => o.agreementId === agreement.id)
       .reduce(
         (sum, o) =>
           sum +
-          computeObligation(o, updatedPayments, state.referenceDate, state.settings.gracePeriodDays)
+          computeObligation(o, updatedPayments, current.referenceDate, current.settings.gracePeriodDays)
             .amountOutstanding,
         0
       );
 
     const slaDate = new Date(
-      new Date().getTime() + state.settings.receiptSlaHours * 60 * 60 * 1000
+      new Date().getTime() + current.settings.receiptSlaHours * 60 * 60 * 1000
     ).toISOString();
 
     const rcpId = uid('rcp-req');
@@ -1174,13 +1280,13 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       paymentRef: sysRef,
       tenantId: tenant.id,
       unitId: agreement.unitId,
-      amount: input.amount,
+      amount: newPayment.amount,
       datePaid: input.dateReceived,
       rentalPeriodCovered: periodCovered,
       securityLevyIncluded,
       remainingBalanceAtPayment: remainingForAgreement,
       issuerContactId: primaryIssuer?.id || 'c-issuer-1',
-      status: primaryIssuer && !state.settings.globalNotificationsPaused ? 'Notified' : 'Created',
+      status: primaryIssuer && !current.settings.globalNotificationsPaused ? 'Notified' : 'Created',
       createdAt: new Date().toISOString(),
       slaDeadlineAt: slaDate,
     };
@@ -1192,15 +1298,15 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
     // Notifications to Receipt Issuer (Email + SMS tracked independently)
     const newNotifications: NotificationRecord[] = [];
     const emailProviderLabel =
-      state.settings.preferredEmailProvider === 'smtp'
+      current.settings.preferredEmailProvider === 'smtp'
         ? 'SMTP'
-        : state.settings.preferredEmailProvider === 'gmail'
+        : current.settings.preferredEmailProvider === 'gmail'
         ? 'Gmail'
         : 'Ledger Only';
 
-    if (primaryIssuer && !state.settings.globalNotificationsPaused) {
+    if (primaryIssuer && !current.settings.globalNotificationsPaused) {
       const evtId = uid('evt-rcp');
-      if (primaryIssuer.emailEnabled && primaryIssuer.email) {
+      if (primaryIssuer.emailEnabled && primaryIssuer.email?.trim()) {
         newNotifications.push({
           id: uid('ntf'),
           eventId: evtId,
@@ -1209,16 +1315,16 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
           tenantId: tenant.id,
           recipientName: primaryIssuer.name,
           recipientRole: 'Receipt Issuer',
-          recipientContact: primaryIssuer.email,
+          recipientContact: primaryIssuer.email.trim(),
           channel: 'Email',
           status: input.simulateNotificationFailure
             ? 'Failed'
-            : state.settings.autoSendPaymentReceipts && emailProviderLabel !== 'Ledger Only'
+            : current.settings.autoSendPaymentReceipts && emailProviderLabel !== 'Ledger Only'
             ? 'Queued'
             : 'Delivered',
           deliveryProvider: emailProviderLabel,
-          subject: `Receipt Request: ${sysRef} — ${tenant.firstName} ${tenant.lastName} (${unit?.code})`,
-          messageBody: `Dear ${primaryIssuer.name.split(' ')[0]},\n\nConfirmed payment ${sysRef} of ₦${input.amount.toLocaleString()} was received on ${paidDateTimeLabel} from ${tenant.firstName} ${tenant.lastName} (${unit?.name} · ${unit?.type}) covering ${periodCovered} (Rent Year: ${resolvedRentYear}). Security levy included: ₦${securityLevyIncluded.toLocaleString()}. Remaining balance: ₦${remainingForAgreement.toLocaleString()}.\n\nPlease issue the official receipt within ${state.settings.receiptSlaHours} hours.\n\nRegards,\n${state.property.name}`,
+          subject: `Receipt Request: ${sysRef} — ${formatTenantName(tenant)} (${unit?.code})`,
+          messageBody: `Dear ${primaryIssuer.name.split(' ')[0]},\n\nConfirmed payment ${sysRef} of ₦${newPayment.amount.toLocaleString()} was received on ${paidDateTimeLabel} from ${formatTenantName(tenant)} (${unit?.name} · ${unit?.type}) covering ${periodCovered} (Rent Year: ${resolvedRentYear}). Security levy included: ₦${securityLevyIncluded.toLocaleString()}. Remaining balance: ₦${remainingForAgreement.toLocaleString()}.\n\nPlease issue the official receipt within ${current.settings.receiptSlaHours} hours.\n\nRegards,\n${current.property.name}`,
           scheduledAt: new Date().toISOString(),
           attemptedAt: input.simulateNotificationFailure ? new Date().toISOString() : undefined,
           retryCount: 0,
@@ -1227,7 +1333,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
             : undefined,
         });
       }
-      if (primaryIssuer.smsEnabled && primaryIssuer.phone) {
+      if (primaryIssuer.smsEnabled && primaryIssuer.phone?.trim()) {
         newNotifications.push({
           id: uid('ntf'),
           eventId: evtId,
@@ -1236,11 +1342,11 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
           tenantId: tenant.id,
           recipientName: primaryIssuer.name,
           recipientRole: 'Receipt Issuer',
-          recipientContact: primaryIssuer.phone,
+          recipientContact: primaryIssuer.phone.trim(),
           channel: 'SMS',
           status: input.simulateNotificationFailure ? 'Retry Pending' : 'Sent',
           deliveryProvider: 'Ledger Only',
-          messageBody: `Receipt Request ${sysRef}: ${tenant.firstName} ${tenant.lastName} (${unit?.code}) paid ₦${input.amount.toLocaleString()} on ${paidDateTimeLabel} (${resolvedRentYear}). Bal: ₦${remainingForAgreement.toLocaleString()}. Please issue official receipt.`,
+          messageBody: `Receipt Request ${sysRef}: ${formatTenantName(tenant)} (${unit?.code}) paid ₦${newPayment.amount.toLocaleString()} on ${paidDateTimeLabel} (${resolvedRentYear}). Bal: ₦${remainingForAgreement.toLocaleString()}. Please issue official receipt.`,
           scheduledAt: new Date().toISOString(),
           attemptedAt: new Date().toISOString(),
           retryCount: input.simulateNotificationFailure ? 1 : 0,
@@ -1252,10 +1358,10 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (
-      state.settings.sendTenantPaymentConfirmation &&
-      !state.settings.globalNotificationsPaused &&
+      current.settings.sendTenantPaymentConfirmation &&
+      !current.settings.globalNotificationsPaused &&
       !tenant.notificationsPaused &&
-      tenant.email
+      tenant.email?.trim()
     ) {
       newNotifications.push({
         id: uid('ntf'),
@@ -1263,18 +1369,18 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
         eventType: 'Payment Recorded / Receipt Request',
         relatedRecordId: payId,
         tenantId: tenant.id,
-        recipientName: `${tenant.firstName} ${tenant.lastName}`,
+        recipientName: formatTenantName(tenant),
         recipientRole: 'Tenant',
-        recipientContact: tenant.email,
+        recipientContact: tenant.email.trim(),
         channel: 'Email',
         status: input.simulateNotificationFailure
           ? 'Failed'
-          : state.settings.autoSendPaymentReceipts && emailProviderLabel !== 'Ledger Only'
+          : current.settings.autoSendPaymentReceipts && emailProviderLabel !== 'Ledger Only'
           ? 'Queued'
           : 'Delivered',
         deliveryProvider: emailProviderLabel,
-        subject: `Payment Confirmation (${sysRef}) — ${state.property.name}`,
-        messageBody: `Dear ${tenant.firstName},\n\nThank you. We confirm receipt of your payment of ₦${input.amount.toLocaleString()} (${input.method}) on ${paidDateTimeLabel} for ${unit?.name} (${periodCovered}).\n\nRemaining balance on this tenancy: ₦${remainingForAgreement.toLocaleString()}.\nYour official receipt request (${rcpId}) has been routed for issuance.\n\nWarm regards,\n${state.property.managerName}\n${state.property.name}`,
+        subject: `Payment Confirmation (${sysRef}) — ${current.property.name}`,
+        messageBody: `Dear ${tenant.firstName || tenant.alias || 'Tenant'},\n\nThank you. We confirm receipt of your payment of ₦${newPayment.amount.toLocaleString()} (${input.method}) on ${paidDateTimeLabel} for ${unit?.name} (${periodCovered}).\n\nRemaining balance on this tenancy: ₦${remainingForAgreement.toLocaleString()}.\nYour official receipt request (${rcpId}) has been routed for issuance.\n\nWarm regards,\n${current.property.managerName}\n${current.property.name}`,
         scheduledAt: new Date().toISOString(),
         attemptedAt: input.simulateNotificationFailure ? new Date().toISOString() : undefined,
         retryCount: 0,
@@ -1284,11 +1390,11 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       });
     }
 
-    // Commission accrual strictly on eligible Rent collected
+    // Commission accrual strictly on eligible Rent / eligible custom category collected
     const { eligibleRent, commissionAmount } = calculateCommissionOnAllocations(
       newPayment.allocations,
-      state.obligations,
-      state.settings.lawyerCommissionRatePercent
+      baseObligations,
+      current.settings.lawyerCommissionRatePercent
     );
     const newCommissions: CommissionRecord[] = [];
     if (commissionAmount > 0) {
@@ -1297,47 +1403,65 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
         paymentId: payId,
         agreementId: agreement.id,
         tenantId: tenant.id,
-        ratePercent: state.settings.lawyerCommissionRatePercent,
+        ratePercent: current.settings.lawyerCommissionRatePercent,
         eligibleRentCollected: eligibleRent,
         accruedAmount: commissionAmount,
         createdAt: new Date().toISOString(),
-        note: `${state.settings.lawyerCommissionRatePercent}% on ₦${eligibleRent.toLocaleString()} eligible rent collected (${sysRef})`,
+        note: `${current.settings.lawyerCommissionRatePercent}% on ₦${eligibleRent.toLocaleString()} eligible rent collected (${sysRef})`,
       });
     }
 
     const touchedIds = new Set(newPayment.allocations.map((a) => a.obligationId));
+    const syncedObligations = syncTouchedObligationsSettlement(
+      baseObligations,
+      touchedIds,
+      updatedPayments,
+      current.referenceDate,
+      current.settings.gracePeriodDays
+    );
 
-    setState((prev) => ({
-      ...prev,
-      payments: [newPayment, ...prev.payments],
-      obligations: syncTouchedObligationsSettlement(
-        prev.obligations,
-        touchedIds,
-        [newPayment, ...prev.payments],
-        prev.referenceDate,
-        prev.settings.gracePeriodDays
+    const auditEntries: AuditLogEntry[] = [
+      makeAudit(
+        current.property.managerName,
+        'Payment',
+        payId,
+        'Payment Recorded',
+        `Recorded ${sysRef} (₦${newPayment.amount.toLocaleString()}) on ${paidDateTimeLabel} for ${formatTenantName(tenant)} (${unit?.code}) covering ${periodCovered} (${resolvedRentYear}). Created receipt request ${rcpId}.`,
+        {
+          newValue: `₦${newPayment.amount.toLocaleString()} · ${input.method}${input.bankReference ? ` · ${input.bankReference}` : ''} · ${resolvedRentYear}`,
+        }
       ),
-      receiptRequests: [newReceipt, ...prev.receiptRequests],
-      notifications: [...newNotifications, ...prev.notifications],
-      commissions: [...newCommissions, ...prev.commissions],
-      auditLogs: [
+    ];
+    if (inlineCreatedSummary) {
+      auditEntries.push(
         makeAudit(
-          prev.property.managerName,
-          'Payment',
-          payId,
-          'Payment Recorded',
-          `Recorded ${sysRef} (₦${input.amount.toLocaleString()}) on ${paidDateTimeLabel} for ${tenant.firstName} ${tenant.lastName} (${unit?.code}) covering ${resolvedRentYear}. Created receipt request ${rcpId}.`,
-          {
-            newValue: `₦${input.amount.toLocaleString()} · ${input.method}${input.bankReference ? ` · ${input.bankReference}` : ''} · ${resolvedRentYear}`,
-          }
-        ),
-        ...prev.auditLogs,
-      ],
-    }));
+          current.property.managerName,
+          'Agreement',
+          agreement.id,
+          'Cycle Obligation Added',
+          `Created ${inlineCreatedSummary} inline while recording ${sysRef} for ${formatTenantName(tenant)} (${unit?.code}).`,
+          { newValue: resolvedRentYear }
+        )
+      );
+    }
+
+    const nextState: RentalAppState = {
+      ...current,
+      payments: updatedPayments,
+      obligations: syncedObligations,
+      receiptRequests: [newReceipt, ...current.receiptRequests],
+      notifications: [...newNotifications, ...current.notifications],
+      commissions: [...newCommissions, ...current.commissions],
+      auditLogs: [...auditEntries, ...current.auditLogs],
+    };
+
+    stateRef.current = nextState;
+    setState(nextState);
 
     return {
       ok: true,
       paymentId: payId,
+      systemRef: sysRef,
       createdNotifications: newNotifications,
       duplicateWarning: isDuplicate,
     };
@@ -1398,7 +1522,13 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
       : [];
 
     const correctionNotifs: NotificationRecord[] = [];
-    if (relatedReceipt && issuer && !state.settings.globalNotificationsPaused) {
+    if (
+      relatedReceipt &&
+      issuer &&
+      (issuer.email?.trim() || issuer.phone?.trim()) &&
+      !state.settings.globalNotificationsPaused
+    ) {
+      const hasEmail = Boolean(issuer.email?.trim());
       correctionNotifs.push({
         id: uid('ntf'),
         eventId: uid('evt-corr'),
@@ -1406,8 +1536,8 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
         relatedRecordId: relatedReceipt.id,
         recipientName: issuer.name,
         recipientRole: 'Receipt Issuer',
-        recipientContact: issuer.email || issuer.phone,
-        channel: issuer.email ? 'Email' : 'SMS',
+        recipientContact: (hasEmail ? issuer.email : issuer.phone).trim(),
+        channel: hasEmail ? 'Email' : 'SMS',
         status: 'Sent',
         subject: `URGENT: Payment Reversed — Cancel/Correct Receipt for ${target.systemRef}`,
         messageBody: `Dear ${issuer.name.split(' ')[0]},\n\nPayment ${target.systemRef} (₦${target.amount.toLocaleString()}) for ${tenant?.firstName} ${tenant?.lastName} has been reversed. Reason: ${reason}. Please cancel or hold any receipt issuance.\n\nRegards,\n${state.property.name}`,
@@ -1733,6 +1863,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
     );
 
     for (const item of dueScheduledNotifications) {
+      if (!item.recipientContact?.trim()) continue;
       if (dispatchingIdsRef.current.has(item.id)) continue;
       if (inQuiet && !item.overrideQuietHours) continue;
 
@@ -1916,7 +2047,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
               eventType,
               relatedRecordId: co.obligation.id,
               tenantId: tenant.id,
-              recipientName: `${tenant.firstName} ${tenant.lastName}`,
+              recipientName: formatTenantName(tenant),
               recipientRole: 'Tenant',
               recipientContact: tenant.email,
               channel: 'Email',
@@ -1927,7 +2058,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
                 ? 'Gmail'
                 : 'Ledger Only',
               subject: `${eventType}: ${unit?.name} — ${co.obligation.rentalPeriodLabel}`,
-              messageBody: `Dear ${tenant.firstName},\n\nThis is a reminder regarding ${co.obligation.rentalPeriodLabel} for ${unit?.name}. Outstanding balance: ₦${co.amountOutstanding.toLocaleString()}${partialNote}. Due date: ${co.obligation.dueDate}.\n\nKindly remit payment and share your transfer reference.\n\nRegards,\n${state.property.name}`,
+              messageBody: `Dear ${tenant.firstName || tenant.alias || 'Tenant'},\n\nThis is a reminder regarding ${co.obligation.rentalPeriodLabel} for ${unit?.name}. Outstanding balance: ₦${co.amountOutstanding.toLocaleString()}${partialNote}. Due date: ${co.obligation.dueDate}.\n\nKindly remit payment and share your transfer reference.\n\nRegards,\n${state.property.name}`,
               scheduledAt: new Date().toISOString(),
               attemptedAt: isAutoSmtp || isGmailMode ? undefined : new Date().toISOString(),
               retryCount: 0,
@@ -1950,7 +2081,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
               eventType,
               relatedRecordId: co.obligation.id,
               tenantId: tenant.id,
-              recipientName: `${tenant.firstName} ${tenant.lastName}`,
+              recipientName: formatTenantName(tenant),
               recipientRole: 'Tenant',
               recipientContact: tenant.phone,
               channel: 'SMS',
@@ -2023,7 +2154,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
           'Commitment',
           newCom.id,
           'Promise to Pay Recorded',
-          `Recorded ₦${input.promisedAmount.toLocaleString()} payment commitment from ${tenant?.firstName} ${tenant?.lastName} due ${input.promisedDate}.`,
+          `Recorded ₦${input.promisedAmount.toLocaleString()} payment commitment from ${formatTenantName(tenant)} due ${input.promisedDate}.`,
           { newValue: `₦${input.promisedAmount.toLocaleString()} · Due ${input.promisedDate}` }
         ),
         ...prev.auditLogs,
@@ -2246,6 +2377,7 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
             id: uid('t'),
             firstName: r.firstName,
             lastName: r.lastName,
+            alias: r.alias,
             phone: r.phone,
             email: r.email,
             archived: false,
@@ -2487,6 +2619,108 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
     }));
   };
 
+  const addCustomPaymentCategory: RentalContextValue['addCustomPaymentCategory'] = (input) => {
+    const label = input.label.trim();
+    if (!label) {
+      return { ok: false, error: 'Category name is required.' };
+    }
+    const lower = label.toLowerCase();
+    const current = stateRef.current;
+    const existingList = current.settings.customPaymentCategories ?? [];
+    if (
+      lower === 'rent' ||
+      lower === 'annual rent' ||
+      lower === 'security levy' ||
+      existingList.some((c) => c.label.trim().toLowerCase() === lower)
+    ) {
+      return { ok: false, error: `Category "${label}" already exists.` };
+    }
+    const parsedDefault = Number(input.defaultAmount);
+    const category: PaymentCategoryDefinition = {
+      id: uid('cat'),
+      label,
+      ...(Number.isFinite(parsedDefault) && parsedDefault > 0
+        ? { defaultAmount: Math.round(parsedDefault * 100) / 100 }
+        : {}),
+      commissionEligible: Boolean(input.commissionEligible),
+      createdAt: new Date().toISOString(),
+    };
+    const nextState: RentalAppState = {
+      ...current,
+      settings: {
+        ...current.settings,
+        customPaymentCategories: [...existingList, category],
+      },
+      auditLogs: [
+        makeAudit(
+          current.property.managerName,
+          'Settings',
+          category.id,
+          'Custom Payment Category Added',
+          `Added payment category "${category.label}" (${category.commissionEligible ? 'commission-eligible' : 'no lawyer commission'}).`,
+          { newValue: `${category.label}${category.defaultAmount ? ` · Default ₦${category.defaultAmount.toLocaleString()}` : ''}` }
+        ),
+        ...current.auditLogs,
+      ],
+    };
+    stateRef.current = nextState;
+    setState(nextState);
+    return { ok: true, category };
+  };
+
+  const deleteCustomPaymentCategory: RentalContextValue['deleteCustomPaymentCategory'] = (categoryId) => {
+    const current = stateRef.current;
+    const existingList = current.settings.customPaymentCategories ?? [];
+    const target = existingList.find((c) => c.id === categoryId);
+    if (!target) return;
+    const nextState: RentalAppState = {
+      ...current,
+      settings: {
+        ...current.settings,
+        customPaymentCategories: existingList.filter((c) => c.id !== categoryId),
+      },
+      auditLogs: [
+        makeAudit(
+          current.property.managerName,
+          'Settings',
+          categoryId,
+          'Custom Payment Category Removed',
+          `Removed custom payment category "${target.label}".`,
+          { previousValue: target.label }
+        ),
+        ...current.auditLogs,
+      ],
+    };
+    stateRef.current = nextState;
+    setState(nextState);
+  };
+
+  const cleanSampleTenantContacts: RentalContextValue['cleanSampleTenantContacts'] = () => {
+    const current = stateRef.current;
+    const { tenants: cleanedTenants, cleanedCount } = stripSyntheticTenantContacts(current.tenants);
+    if (cleanedCount === 0) {
+      return { cleanedCount: 0 };
+    }
+    const nextState: RentalAppState = {
+      ...current,
+      tenants: cleanedTenants,
+      auditLogs: [
+        makeAudit(
+          current.property.managerName,
+          'Settings',
+          'sample-contact-cleanup',
+          'Cleaned Sample Contacts',
+          `Removed synthetic placeholder phones/emails from ${cleanedCount} tenant record(s); preserved all ledger entries.`,
+          { newValue: `${cleanedCount} tenant(s) cleared` }
+        ),
+        ...current.auditLogs,
+      ],
+    };
+    stateRef.current = nextState;
+    setState(nextState);
+    return { cleanedCount };
+  };
+
   const saveSmsTemplate: RentalContextValue['saveSmsTemplate'] = useCallback((input) => {
     const nameTrim = input.name.trim();
     const bodyTrim = input.body.trim();
@@ -2670,6 +2904,9 @@ export function RentalProvider({ children }: { children: React.ReactNode }) {
         commitPaymentImport,
         updateSettings,
         updatePropertyProfile,
+        addCustomPaymentCategory,
+        deleteCustomPaymentCategory,
+        cleanSampleTenantContacts,
         saveSmsTemplate,
         deleteSmsTemplate,
         addContact,

@@ -12,7 +12,7 @@ import {
 import { useRentalStore } from '../context/RentalStore';
 import type { AgeingBucket } from '../types/rental';
 import { exportFilteredCsv } from '../utils/csvExport';
-import { formatDateShort, formatNaira } from '../utils/format';
+import { formatDateShort, formatNaira, formatTenantName } from '../utils/format';
 import {
   buildAllTenantArrearsMap,
   buildMonthlyCollectionsSeries,
@@ -20,6 +20,7 @@ import {
   buildTenantPaymentStatusBreakdown,
   buildUpcomingDueDates,
 } from '../utils/multiYearArrears';
+import { getObligationCategoryLabel } from '../utils/paymentReconciliation';
 import { StatusBadge } from './StatusBadge';
 import {
   ExportCsvButton,
@@ -219,7 +220,7 @@ export function DashboardView() {
         const arrearsProf = tenant ? arrearsMap[tenant.id] : undefined;
 
         if (q) {
-          const text = `${tenant?.firstName} ${tenant?.lastName} ${unit?.code} ${unit?.name} ${co.obligation.rentalPeriodLabel}`.toLowerCase();
+          const text = `${formatTenantName(tenant)} ${tenant?.alias || ''} ${unit?.code} ${unit?.name} ${co.obligation.rentalPeriodLabel}`.toLowerCase();
           if (!text.includes(q)) return false;
         }
 
@@ -310,16 +311,22 @@ export function DashboardView() {
       ...prof.unpaidLevyCycles.map(
         (c) => `• ${c.periodLabel}: ${formatNaira(c.amountOutstanding)}`
       ),
+      ...prof.unpaidOtherCycles.map(
+        (c) => `• ${c.periodLabel}: ${formatNaira(c.amountOutstanding)}`
+      ),
     ];
+
+    const tenantDisplayName = formatTenantName(tenant);
+    const tenantGreetingName = tenant.firstName?.trim() || tenant.alias?.trim() || tenant.lastName?.trim() || 'Tenant';
 
     openComposerFor({
       directoryRecipientIds: [`tenant:${tenant.id}`],
       linkedTenantId: tenant.id,
       channelMode: 'Both',
       intent: prof.isMultiYear ? 'Multi-Year Arrears Notice' : 'Arrears & Levy Reminder',
-      subject: `${prof.isMultiYear ? 'URGENT Multi-Year' : 'Outstanding'} Arrears Notice: ${unit?.code || 'Unit'} — ${tenant.firstName} ${tenant.lastName}`,
-      emailBody: `Dear ${tenant.firstName} ${tenant.lastName},\n\nOur records at ${state.property.name} (${unit?.code || ''}) reflect an outstanding balance totaling ${formatNaira(prof.totalOutstanding)}:\n\n${lines.join('\n')}\n\nPlease remit payment promptly or contact ${state.property.managerName} to confirm settlement details.\n\nRegards,\n${state.property.managerName}\n${state.property.name}`,
-      smsBody: `${state.property.name}: Dear ${tenant.firstName}, your ${unit?.code || ''} balance is ${formatNaira(prof.totalOutstanding)} (${prof.unpaidYears.length ? `cycles: ${prof.unpaidYears.join(', ')}` : 'open dues'}). Please remit & confirm with ${state.property.managerName}.`,
+      subject: `${prof.isMultiYear ? 'URGENT Multi-Year' : 'Outstanding'} Arrears Notice: ${unit?.code || 'Unit'} — ${tenantDisplayName}`,
+      emailBody: `Dear ${tenantDisplayName},\n\nOur records at ${state.property.name} (${unit?.code || ''}) reflect an outstanding balance totaling ${formatNaira(prof.totalOutstanding)}:\n\n${lines.join('\n')}\n\nPlease remit payment promptly or contact ${state.property.managerName} to confirm settlement details.\n\nRegards,\n${state.property.managerName}\n${state.property.name}`,
+      smsBody: `${state.property.name}: Dear ${tenantGreetingName}, your ${unit?.code || ''} balance is ${formatNaira(prof.totalOutstanding)} (${prof.unpaidYears.length ? `cycles: ${prof.unpaidYears.join(', ')}` : 'open dues'}). Please remit & confirm with ${state.property.managerName}.`,
     });
   };
 
@@ -350,13 +357,13 @@ export function DashboardView() {
         const behaviour = tenant ? tenantBehaviours[tenant.id] : 'Current';
         const tier = tenant ? arrearsMap[tenant.id]?.tier || 'Clear' : 'Clear';
         return [
-          tenant ? `${tenant.firstName} ${tenant.lastName}` : 'Unknown Tenant',
+          tenant ? formatTenantName(tenant) : 'Unknown Tenant',
           unit?.code || '',
           unit?.name || '',
           unit?.type || '',
           tier,
           co.obligation.rentalPeriodLabel,
-          co.obligation.chargeType,
+          getObligationCategoryLabel(co.obligation),
           co.obligation.dueDate,
           co.daysPastDue,
           co.ageingBucket,
@@ -570,7 +577,7 @@ export function DashboardView() {
                   className="text-left min-w-0 min-h-[44px]"
                 >
                   <span className="font-semibold text-[1rem] text-[var(--ink-primary)] block truncate">
-                    {tenant.firstName} {tenant.lastName}
+                    {formatTenantName(tenant)}
                   </span>
                   <span className="hig-caption block truncate">
                     {unit?.code} · {unit?.name}
@@ -598,10 +605,11 @@ export function DashboardView() {
                 )}
               </div>
 
-              <div className="flex items-center justify-between hig-caption pt-1">
+              <div className="flex items-center justify-between hig-caption pt-1 flex-wrap gap-2">
                 <span>Rent: {formatNaira(profile.unpaidRentAmount)}</span>
                 <span style={{ color: 'var(--status-warning-ink)' }}>
                   Levy: {formatNaira(profile.unpaidLevyAmount)}
+                  {profile.unpaidOtherAmount > 0 ? ` · Other: ${formatNaira(profile.unpaidOtherAmount)}` : ''}
                 </span>
               </div>
 
@@ -662,7 +670,7 @@ export function DashboardView() {
                       className="text-left group min-h-[44px] flex flex-col justify-center"
                     >
                       <span className="font-semibold text-[var(--ink-primary)] group-hover:underline block">
-                        {tenant.firstName} {tenant.lastName}
+                        {formatTenantName(tenant)}
                       </span>
                       <span className="hig-caption">
                         {unit?.code} · {unit?.name}
@@ -686,7 +694,12 @@ export function DashboardView() {
                     className="py-3.5 px-4 text-right font-mono-nums"
                     style={{ color: 'var(--status-warning-ink)' }}
                   >
-                    {formatNaira(profile.unpaidLevyAmount)}
+                    <span>{formatNaira(profile.unpaidLevyAmount)}</span>
+                    {profile.unpaidOtherAmount > 0 && (
+                      <span className="block hig-caption text-[var(--ink-secondary)]">
+                        +{formatNaira(profile.unpaidOtherAmount)} other
+                      </span>
+                    )}
                   </td>
                   <td
                     className="py-3.5 px-4 text-right font-mono-nums font-semibold"
@@ -807,7 +820,7 @@ export function DashboardView() {
                 >
                   <div className="flex items-center justify-between text-[0.8125rem] mb-1.5 gap-2">
                     <span className="font-medium text-[var(--ink-primary)] group-hover:underline truncate">
-                      {tenant.firstName} {tenant.lastName}{' '}
+                      {formatTenantName(tenant)}{' '}
                       <span className="text-[var(--ink-tertiary)] font-normal">({unit?.code})</span>
                       {profile.isMultiYear && (
                         <span
@@ -1086,7 +1099,7 @@ export function DashboardView() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[0.875rem] font-medium text-[var(--ink-primary)] truncate">
-                        Receipt {req.paymentRef} · {tenant?.firstName} {tenant?.lastName}
+                        Receipt {req.paymentRef} · {formatTenantName(tenant)}
                       </span>
                       <StatusBadge label={req.status} />
                     </div>
@@ -1111,7 +1124,7 @@ export function DashboardView() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[0.875rem] font-medium text-[var(--ink-primary)] truncate">
-                        Promise · {tenant?.firstName} {tenant?.lastName}
+                        Promise · {formatTenantName(tenant)}
                       </span>
                       <StatusBadge label={ec.effectiveStatus} />
                     </div>
@@ -1208,10 +1221,10 @@ export function DashboardView() {
                       className="text-left min-w-0 min-h-[44px]"
                     >
                       <span className="font-semibold text-[1rem] text-[var(--ink-primary)] block truncate">
-                        {tenant ? `${tenant.firstName} ${tenant.lastName}` : 'Unknown Tenant'}
+                        {tenant ? formatTenantName(tenant) : 'Unknown Tenant'}
                       </span>
                       <span className="hig-caption block truncate">
-                        {unit?.code} · {unit?.name} · {co.obligation.rentalPeriodLabel}
+                        {unit?.code} · {unit?.name} · {co.obligation.rentalPeriodLabel} ({getObligationCategoryLabel(co.obligation)})
                       </span>
                     </button>
                     <div className="text-right shrink-0">
@@ -1313,7 +1326,7 @@ export function DashboardView() {
                           className="text-left group min-h-[44px] flex flex-col justify-center"
                         >
                           <span className="font-medium text-[var(--ink-primary)] group-hover:underline block">
-                            {tenant ? `${tenant.firstName} ${tenant.lastName}` : 'Unknown Tenant'}
+                            {tenant ? formatTenantName(tenant) : 'Unknown Tenant'}
                           </span>
                           <span className="hig-caption">
                             {unit?.code} · {unit?.name} · {unit?.type}
@@ -1333,7 +1346,7 @@ export function DashboardView() {
                           {co.obligation.rentalPeriodLabel}
                         </span>
                         <span className="hig-caption">
-                          {co.obligation.chargeType}
+                          {getObligationCategoryLabel(co.obligation)}
                           {co.obligation.reviewReason ? ` · ${co.obligation.reviewReason}` : ''}
                         </span>
                       </td>

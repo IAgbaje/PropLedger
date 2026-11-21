@@ -2,8 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { AlertTriangle, Pencil, RotateCcw } from 'lucide-react';
 import { useRentalStore } from '../context/RentalStore';
 import { exportFilteredCsv } from '../utils/csvExport';
-import { formatNaira, formatPaymentTimestamp } from '../utils/format';
-import { getEffectivePaymentRentYear } from '../utils/paymentReconciliation';
+import { formatNaira, formatPaymentTimestamp, formatTenantName } from '../utils/format';
+import { getEffectivePaymentRentYear, getObligationCategoryLabel } from '../utils/paymentReconciliation';
 import { StatusBadge } from './StatusBadge';
 import { ExportCsvButton, SearchInput } from './TableToolbarControls';
 
@@ -52,7 +52,7 @@ export function PaymentsView() {
       if (q) {
         const tenant = state.tenants.find((t) => t.id === p.tenantId);
         const unit = state.units.find((u) => u.id === p.unitId);
-        const text = `${p.systemRef} ${p.bankReference} ${p.method} ${rentYear} ${p.notes} ${p.timeReceived || ''} ${tenant?.firstName} ${tenant?.lastName} ${unit?.code} ${unit?.name}`.toLowerCase();
+        const text = `${p.systemRef} ${p.bankReference} ${p.method} ${rentYear} ${p.notes} ${p.timeReceived || ''} ${formatTenantName(tenant)} ${tenant?.alias || ''} ${unit?.code} ${unit?.name}`.toLowerCase();
         if (!text.includes(q)) return false;
       }
       return true;
@@ -100,7 +100,7 @@ export function PaymentsView() {
           p.dateReceived,
           p.timeReceived || '',
           rentYear,
-          tenant ? `${tenant.firstName} ${tenant.lastName}` : '',
+          tenant ? formatTenantName(tenant) : '',
           unit?.code || '',
           unit?.name || '',
           p.method,
@@ -231,7 +231,7 @@ export function PaymentsView() {
                     className="text-left min-w-0 min-h-[44px]"
                   >
                     <span className="font-semibold text-[1rem] text-[var(--ink-primary)] block truncate">
-                      {tenant?.firstName} {tenant?.lastName}
+                      {formatTenantName(tenant)}
                     </span>
                     <span className="hig-caption block truncate">
                       {unit?.code} · {unit?.name} · {p.systemRef}
@@ -266,7 +266,8 @@ export function PaymentsView() {
                       const ob = state.obligations.find((o) => o.id === a.obligationId);
                       return (
                         <div key={a.obligationId} className="tabular-nums">
-                          {ob?.rentalPeriodLabel}: {formatNaira(a.amount)}
+                          {ob ? `${getObligationCategoryLabel(ob)} · ${ob.rentalPeriodLabel}` : 'Obligation'}:{' '}
+                          {formatNaira(a.amount)}
                         </div>
                       );
                     })
@@ -363,7 +364,7 @@ export function PaymentsView() {
                           className="text-left hover:underline min-h-[44px] flex flex-col justify-center"
                         >
                           <span className="font-medium text-[var(--ink-primary)] block truncate max-w-[155px]">
-                            {tenant?.firstName} {tenant?.lastName}
+                            {formatTenantName(tenant)}
                           </span>
                           <span className="hig-caption truncate max-w-[155px]">
                             {unit?.code} · {unit?.name}
@@ -396,7 +397,8 @@ export function PaymentsView() {
                             const ob = state.obligations.find((o) => o.id === a.obligationId);
                             return (
                               <div key={a.obligationId} className="tabular-nums">
-                                {ob?.rentalPeriodLabel}: {formatNaira(a.amount)}
+                                {ob ? `${getObligationCategoryLabel(ob)} · ${ob.rentalPeriodLabel}` : 'Obligation'}:{' '}
+                                {formatNaira(a.amount)}
                               </div>
                             );
                           })

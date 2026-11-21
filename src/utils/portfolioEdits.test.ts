@@ -249,3 +249,116 @@ test('applyUnitDelete removes unit and cascades leases while preserving maintena
   assert.ok(keptMaint);
   assert.equal(keptMaint.unitId, undefined);
 });
+
+test('applyTenantEdit and applyUnitEditAndOccupant allow saving tenants with blank phone and email', () => {
+  const target = SEED_STATE.tenants[0];
+  const editRes = applyTenantEdit(
+    SEED_STATE,
+    target.id,
+    {
+      firstName: target.firstName,
+      lastName: target.lastName,
+      phone: '',
+      email: '',
+      occupancyMode: 'unchanged',
+    },
+    makeDeterministicIdGen()
+  );
+  assert.equal(editRes.ok, true);
+  const edited = editRes.state?.tenants.find((t) => t.id === target.id);
+  assert.equal(edited?.phone, '');
+  assert.equal(edited?.email, '');
+
+  const unit = SEED_STATE.units[2];
+  const unitRes = applyUnitEditAndOccupant(
+    SEED_STATE,
+    unit.id,
+    {
+      code: unit.code,
+      name: unit.name,
+      type: unit.type,
+      floorOrWing: unit.floorOrWing,
+      occupancyStatus: 'Occupied',
+      occupantMode: 'new-tenant',
+      newTenant: {
+        firstName: 'Musa',
+        lastName: 'Danjuma',
+        phone: '',
+        email: '',
+      },
+      agreedRent: 75000,
+      securityLevy: 4000,
+    },
+    makeDeterministicIdGen()
+  );
+  assert.equal(unitRes.ok, true);
+  const createdTenant = unitRes.state?.tenants.find((t) => t.firstName === 'Musa' && t.lastName === 'Danjuma');
+  assert.ok(createdTenant);
+  assert.equal(createdTenant.phone, '');
+  assert.equal(createdTenant.email, '');
+});
+
+test('applyTenantEdit and applyUnitEditAndOccupant support saving, clearing, and alias-only tenant records', () => {
+  const target = SEED_STATE.tenants[0];
+  const withAlias = applyTenantEdit(
+    SEED_STATE,
+    target.id,
+    {
+      firstName: target.firstName,
+      lastName: target.lastName,
+      alias: 'Baba Ibeji',
+      phone: target.phone,
+      email: target.email,
+      occupancyMode: 'unchanged',
+    },
+    makeDeterministicIdGen()
+  );
+  assert.equal(withAlias.ok, true);
+  assert.equal(withAlias.state?.tenants.find((t) => t.id === target.id)?.alias, 'Baba Ibeji');
+
+  const clearedAlias = applyTenantEdit(
+    withAlias.state!,
+    target.id,
+    {
+      firstName: target.firstName,
+      lastName: target.lastName,
+      alias: '   ',
+      phone: target.phone,
+      email: target.email,
+      occupancyMode: 'unchanged',
+    },
+    makeDeterministicIdGen()
+  );
+  assert.equal(clearedAlias.ok, true);
+  assert.equal(clearedAlias.state?.tenants.find((t) => t.id === target.id)?.alias, undefined);
+
+  const kioskUnit = SEED_STATE.units.find((u) => u.type === 'Kiosk') || SEED_STATE.units[3];
+  const aliasOnlyRes = applyUnitEditAndOccupant(
+    SEED_STATE,
+    kioskUnit.id,
+    {
+      code: kioskUnit.code,
+      name: kioskUnit.name,
+      type: kioskUnit.type,
+      floorOrWing: kioskUnit.floorOrWing,
+      occupancyStatus: 'Occupied',
+      occupantMode: 'new-tenant',
+      newTenant: {
+        firstName: '',
+        lastName: '',
+        alias: 'Iya Risi',
+        phone: '',
+        email: '',
+      },
+      agreedRent: 45000,
+      securityLevy: 4000,
+    },
+    makeDeterministicIdGen()
+  );
+  assert.equal(aliasOnlyRes.ok, true);
+  const aliasTenant = aliasOnlyRes.state?.tenants.find((t) => t.alias === 'Iya Risi');
+  assert.ok(aliasTenant);
+  assert.equal(aliasTenant.firstName, '');
+  assert.equal(aliasTenant.lastName, '');
+});
+

@@ -10,7 +10,7 @@ export function filterTenantsByQuery(
   if (!q) return tenants;
 
   return tenants.filter((t) => {
-    const tenantText = `${t.firstName} ${t.lastName} ${t.phone} ${t.email}`.toLowerCase();
+    const tenantText = `${t.firstName} ${t.lastName} ${t.alias || ''} ${t.phone} ${t.email}`.toLowerCase();
     if (tenantText.includes(q)) return true;
 
     const tenantAgreements = agreements.filter((a) => a.tenantId === t.id);
@@ -39,7 +39,7 @@ export function filterUnitsByQuery(
     if (!activeAg) return false;
     const tenant = tenants.find((t) => t.id === activeAg.tenantId);
     if (!tenant) return false;
-    return `${tenant.firstName} ${tenant.lastName} ${tenant.phone} ${tenant.email}`.toLowerCase().includes(q);
+    return `${tenant.firstName} ${tenant.lastName} ${tenant.alias || ''} ${tenant.phone} ${tenant.email}`.toLowerCase().includes(q);
   });
 }
 
@@ -60,6 +60,7 @@ export function filterAgreementsByQuery(
       unit?.name,
       unit?.type,
       tenant ? `${tenant.firstName} ${tenant.lastName}` : '',
+      tenant?.alias,
       tenant?.phone,
       ag.status,
       ag.rentCycle,

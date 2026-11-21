@@ -4,6 +4,8 @@ import {
   caretOffsetForSignificantCount,
   countSignificantCurrencyChars,
   formatAccountingDisplay,
+  formatTenantName,
+  getTenantLegalName,
   parseCurrencyValue,
   sanitizeCurrencyInput,
 } from './format';
@@ -49,4 +51,22 @@ test('caret helpers preserve cursor position across inserted commas', () => {
   // Typing '5' after '4' in '4,000,000' -> '45,000,000' (2 sig chars before caret)
   assert.equal(caretOffsetForSignificantCount('45,000,000', 2), 2);
   assert.equal(caretOffsetForSignificantCount('45,000,000', 0), 0);
+});
+
+test('formatTenantName and getTenantLegalName handle legal name, alias, and alias-only tenants', () => {
+  assert.equal(
+    formatTenantName({ firstName: 'Adeoye', lastName: 'Sulaimon', alias: 'Baba Ibeji' }),
+    'Adeoye Sulaimon (Baba Ibeji)'
+  );
+  assert.equal(
+    formatTenantName({ firstName: 'Adeoye', lastName: 'Sulaimon', alias: 'Baba Ibeji' }, { includeAlias: false }),
+    'Adeoye Sulaimon'
+  );
+  assert.equal(
+    formatTenantName({ firstName: '', lastName: '', alias: 'Mama T' }),
+    'Mama T'
+  );
+  assert.equal(getTenantLegalName({ firstName: '', lastName: '', alias: 'Mama T' }), '');
+  assert.equal(formatTenantName({ firstName: '', lastName: '', alias: '' }), 'Unknown Tenant');
+  assert.equal(formatTenantName(undefined), 'Unknown Tenant');
 });

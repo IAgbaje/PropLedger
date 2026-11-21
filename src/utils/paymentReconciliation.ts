@@ -9,6 +9,7 @@ import type {
   RentalAppState,
   RentalObligation,
 } from '../types/rental';
+import { formatTenantName } from './format';
 import {
   calculateCommissionOnAllocations,
   checkDuplicateBankReference,
@@ -35,9 +36,21 @@ export interface CreateCycleObligationPayload {
   agreementId: string;
   cycleYear: string; // e.g., "2026", "2027", "2025/2026"
   rentalPeriodLabel?: string;
-  rentAmount: number;
+  rentAmount?: number;
   levyAmount?: number;
   dueDate: string; // YYYY-MM-DD
+  categoryMode?: 'rent-and-levy' | 'rent-only' | 'levy-only' | 'custom';
+  categoryId?: string;
+  categoryLabel?: string;
+  commissionEligible?: boolean;
+  customAmount?: number;
+}
+
+export function getObligationCategoryLabel(ob: Pick<RentalObligation, 'chargeType' | 'categoryLabel'>): string {
+  if (ob.categoryLabel?.trim()) return ob.categoryLabel.trim();
+  if (ob.chargeType === 'Rent') return 'Annual Rent';
+  if (ob.chargeType === 'Security Levy') return 'Security Levy';
+  return 'Other Charge';
 }
 
 export interface ObligationReconciliationItem {
@@ -419,7 +432,7 @@ export function applyPaymentEdit(
     entityType: 'Payment',
     entityId: paymentId,
     action: 'Payment Reconciled / Edited',
-    summary: `Updated ${existing.systemRef} for ${tenant.firstName} ${tenant.lastName} (${unit?.code || agreement.unitId}): ₦${updatedPayment.amount.toLocaleString()} on ${updatedPayment.dateReceived}${newTimePart} (${resolvedRentYear}).`,
+    summary: `Updated ${existing.systemRef} for ${formatTenantName(tenant)} (${unit?.code || agreement.unitId}): ₦${updatedPayment.amount.toLocaleString()} on ${updatedPayment.dateReceived}${newTimePart} (${resolvedRentYear}).`,
     previousValue: `₦${existing.amount.toLocaleString()} · ${existing.dateReceived}${oldTimePart} · ${existing.method} · ${existing.bankReference || 'No ref'} · Cycle ${oldPrevYear}`,
     newValue: `₦${updatedPayment.amount.toLocaleString()} · ${updatedPayment.dateReceived}${newTimePart} · ${updatedPayment.method} · ${updatedPayment.bankReference || 'No ref'} · Cycle ${resolvedRentYear}`,
     reason: payload.editReason?.trim() || 'Bank statement reconciliation update',
@@ -467,14 +480,32 @@ export function applyCreateCycleObligation(
     return { ok: false, error: 'Valid due date (YYYY-MM-DD) is required.' };
   }
 
-  const rentAmount = Math.max(0, Math.round((Number(payload.rentAmount) || 0) * 100) / 100);
-  const levyAmount = Math.max(0, Math.round((Number(payload.levyAmount) || 0) * 100) / 100);
-  if (rentAmount <= 0 && levyAmount <= 0) {
-    return { ok: false, error: 'Enter a Rent amount or Security Levy amount greater than ₦0.' };
+  const categoryMode = payload.categoryMode ?? 'rent-and-levy';
+  const rentAmount =
+    categoryMode === 'levy-only' || categoryMode === 'custom'
+      ? 0
+      : Math.max(0, Math.round((Number(payload.rentAmount) || 0) * 100) / 100);
+  const levyAmount =
+    categoryMode === 'rent-only' || categoryMode === 'custom'
+      ? 0
+      : Math.max(0, Math.round((Number(payload.levyAmount) || 0) * 100) / 100);
+  const customAmount =
+    categoryMode === 'custom'
+      ? Math.max(0, Math.round((Number(payload.customAmount) || 0) * 100) / 100)
+      : 0;
+
+  if (rentAmount <= 0 && levyAmount <= 0 && customAmount <= 0) {
+    return { ok: false, error: 'Enter a charge amount greater than ₦0.' };
   }
 
   const rentLabel = payload.rentalPeriodLabel?.trim() || `${cycleYear} Annual Rent`;
-  const levyLabel = `${cycleYear} Security Levy`;
+  const levyLabel =
+    categoryMode === 'levy-only' && payload.rentalPeriodLabel?.trim()
+      ? payload.rentalPeriodLabel.trim()
+      : `${cycleYear} Security Levy`;
+  const customCategoryLabel = payload.categoryLabel?.trim() || 'Other Charge';
+  const customLabel =
+    payload.rentalPeriodLabel?.trim() || `${cycleYear} ${customCategoryLabel}`;
 
   const duplicateRent =
     rentAmount > 0 &&
@@ -503,6 +534,21 @@ export function applyCreateCycleObligation(
     return {
       ok: false,
       error: `"${levyLabel}" already exists for this tenancy.`,
+    };
+  }
+
+  const duplicateCustom =
+    customAmount > 0 &&
+    state.obligations.some(
+      (o) =>
+        o.agreementId === agreement.id &&
+        o.chargeType === 'Other Charge' &&
+        o.rentalPeriodLabel.trim().toLowerCase() === customLabel.toLowerCase()
+    );
+  if (duplicateCustom) {
+    return {
+      ok: false,
+      error: `"${customLabel}" already exists for this tenancy.`,
     };
   }
 
@@ -540,6 +586,24 @@ export function applyCreateCycleObligation(
     });
   }
 
+  if (customAmount > 0) {
+    created.push({
+      id: idGen('ob'),
+      agreementId: agreement.id,
+      tenantId: agreement.tenantId,
+      unitId: agreement.unitId,
+      chargeType: 'Other Charge',
+      categoryId: payload.categoryId?.trim() || undefined,
+      categoryLabel: customCategoryLabel,
+      commissionEligible: Boolean(payload.commissionEligible),
+      rentalPeriodLabel: customLabel,
+      originalAmount: customAmount,
+      dueDate: payload.dueDate.trim(),
+      underReview: false,
+      createdAt: nowIso,
+    });
+  }
+
   const auditEntry: AuditLogEntry = {
     id: idGen('aud'),
     timestamp: nowIso,
@@ -547,7 +611,7 @@ export function applyCreateCycleObligation(
     entityType: 'Agreement',
     entityId: agreement.id,
     action: 'Cycle Obligation Added',
-    summary: `Added ${created.map((c) => `${c.rentalPeriodLabel} (₦${c.originalAmount.toLocaleString()})`).join(' + ')} for ${tenant ? `${tenant.firstName} ${tenant.lastName}` : agreement.tenantId} (${unit?.code || agreement.unitId}).`,
+    summary: `Added ${created.map((c) => `${c.rentalPeriodLabel} (₦${c.originalAmount.toLocaleString()})`).join(' + ')} for ${tenant ? formatTenantName(tenant) : agreement.tenantId} (${unit?.code || agreement.unitId}).`,
     newValue: `${cycleYear} · Due ${payload.dueDate.trim()}`,
   };
 

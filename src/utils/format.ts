@@ -99,6 +99,30 @@ export function formatDateShort(dateStr: string): string {
   }).format(dt);
 }
 
+export interface TenantNameLike {
+  firstName?: string;
+  lastName?: string;
+  alias?: string;
+}
+
+export function getTenantLegalName(tenant?: TenantNameLike | null): string {
+  if (!tenant) return '';
+  return [tenant.firstName?.trim(), tenant.lastName?.trim()].filter(Boolean).join(' ');
+}
+
+export function formatTenantName(
+  tenant?: TenantNameLike | null,
+  options?: { includeAlias?: boolean }
+): string {
+  if (!tenant) return 'Unknown Tenant';
+  const legal = getTenantLegalName(tenant);
+  const alias = tenant.alias?.trim();
+  if (legal && alias && options?.includeAlias !== false) {
+    return `${legal} (${alias})`;
+  }
+  return legal || alias || 'Unknown Tenant';
+}
+
 export function formatDateTimeShort(isoStr: string): string {
   if (!isoStr) return '—';
   const dt = new Date(isoStr);

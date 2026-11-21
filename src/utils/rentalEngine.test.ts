@@ -320,4 +320,68 @@ U-12,Bad Row,Penthouse,Annex,Ada,,+2348000000000,,-500,4000,invalid-date,2027-10
   const results = validateTenancyCsvRows(parsed.rows, [], []);
   assert.equal(results[0].status, 'Valid');
   assert.equal(results[1].status, 'Error');
+
+  // Blank phone & email in tenancy CSV should be Valid
+  const noContactCsv = `unitCode,unitName,unitType,floorOrWing,firstName,lastName,phone,email,agreedRent,securityLevy,startDate,endDate,dueDate
+U-15,Room 15,Room,Main,Kazeem,Balogun,,,70000,4000,2026-01-01,2026-12-31,2026-01-01`;
+  const noContactParsed = parseCsvText(noContactCsv);
+  const noContactRes = validateTenancyCsvRows(noContactParsed.rows, [], []);
+  assert.equal(noContactRes[0].status, 'Valid');
 });
+
+test('commission honors commissionEligible on custom Other Charge obligations while excluding non-eligible ones', () => {
+  const obs: RentalObligation[] = [
+    {
+      id: 'ob-gen',
+      agreementId: 'ag-1',
+      tenantId: 'ten-1',
+      unitId: 'unit-1',
+      chargeType: 'Other Charge',
+      categoryLabel: 'Generator Levy',
+      commissionEligible: true,
+      rentalPeriodLabel: '2026 Generator Levy',
+      originalAmount: 50000,
+      dueDate: '2026-01-01',
+      underReview: false,
+      createdAt: '2026-01-01T00:00:00Z',
+    },
+    {
+      id: 'ob-water',
+      agreementId: 'ag-1',
+      tenantId: 'ten-1',
+      unitId: 'unit-1',
+      chargeType: 'Other Charge',
+      categoryLabel: 'Water Rate',
+      commissionEligible: false,
+      rentalPeriodLabel: '2026 Water Rate',
+      originalAmount: 20000,
+      dueDate: '2026-01-01',
+      underReview: false,
+      createdAt: '2026-01-01T00:00:00Z',
+    },
+  ];
+  const { eligibleRent, commissionAmount } = calculateCommissionOnAllocations(
+    [
+      { obligationId: 'ob-gen', amount: 50000 },
+      { obligationId: 'ob-water', amount: 20000 },
+    ],
+    obs,
+    10
+  );
+  assert.equal(eligibleRent, 50000);
+  assert.equal(commissionAmount, 5000);
+});
+
+test('validateTenancyCsvRows parses optional alias and accepts alias-only tenant rows', () => {
+  const csv = `unitCode,unitName,unitType,floorOrWing,firstName,lastName,alias,phone,email,agreedRent,securityLevy,startDate,endDate,dueDate
+K-12,Gate Kiosk 12,Kiosk,Front Gate,,,Mama T,,,40000,4000,2026-01-01,2026-12-31,2026-01-01
+Shop-14,Corner Shop 14,Shop,Ground Floor,Tunde,Balogun,Baba T,+234 805 112 9044,,150000,4000,2026-01-01,2026-12-31,2026-01-01`;
+  const parsed = parseCsvText(csv);
+  const results = validateTenancyCsvRows(parsed.rows, [], []);
+  assert.equal(results[0].status, 'Valid');
+  assert.equal(results[0].parsed?.alias, 'Mama T');
+  assert.equal(results[0].parsed?.firstName, '');
+  assert.equal(results[1].status, 'Valid');
+  assert.equal(results[1].parsed?.alias, 'Baba T');
+});
+

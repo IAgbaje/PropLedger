@@ -16,7 +16,7 @@ import {
   fetchSyncedCalendarEvents,
   syncCalendarReminderEvent,
 } from '../utils/emailClient';
-import { formatDateShort, formatNaira } from '../utils/format';
+import { formatDateShort, formatNaira, formatTenantName } from '../utils/format';
 import {
   buildCalendarEventPayload,
   collectCalendarDueCandidates,
@@ -258,7 +258,7 @@ export function CalendarSyncModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/45 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-2.5 sm:p-4 bg-black/45 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="calendar-sync-modal-title"
@@ -276,7 +276,7 @@ export function CalendarSyncModal() {
                 className="hig-title-3 truncate"
               >
                 Google Calendar Due-Date Reminders
-                {tenantFilterObj ? ` — ${tenantFilterObj.firstName} ${tenantFilterObj.lastName}` : ''}
+                {tenantFilterObj ? ` — ${formatTenantName(tenantFilterObj)}` : ''}
               </h2>
               <p className="hig-footnote mt-0.5">
                 Sync rent due dates, security levies, and promise deadlines to Google Calendar with automatic email & popup alerts.

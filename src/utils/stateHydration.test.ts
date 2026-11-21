@@ -71,4 +71,30 @@ test('hydrateRentalState preserves custom user edits while filling defaults', ()
   const hydrated = hydrateRentalState(customSaved);
   assert.equal(hydrated.property.name, 'Custom Estate Wing');
   assert.equal(hydrated.property.managerName, 'Ibraheem Agbaje');
+  assert.deepEqual(hydrated.settings.customPaymentCategories, []);
 });
+
+test('hydrateRentalState strips synthetic seed phones/emails while keeping real user-entered tenant contacts', () => {
+  const savedWithMixedContacts = {
+    ...SEED_STATE,
+    tenants: [
+      {
+        ...SEED_STATE.tenants[0],
+        phone: '+234 803 101 2001',
+        email: 'sholanke.olawale@agbasaffys.ng',
+      },
+      {
+        ...SEED_STATE.tenants[1],
+        phone: '+234 809 555 1234',
+        email: 'real.tenant@gmail.com',
+      },
+    ],
+  };
+  const hydrated = hydrateRentalState(savedWithMixedContacts);
+  assert.equal(hydrated.tenants[0].phone, '');
+  assert.equal(hydrated.tenants[0].email, '');
+  assert.equal(hydrated.tenants[1].phone, '+234 809 555 1234');
+  assert.equal(hydrated.tenants[1].email, 'real.tenant@gmail.com');
+  assert.equal(SEED_STATE.tenants.every((t) => t.phone === '' && t.email === ''), true);
+});
+

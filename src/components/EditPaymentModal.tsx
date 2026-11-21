@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock, Plus, X } from 'lucide-react';
 import { useRentalStore } from '../context/RentalStore';
 import type { PaymentAllocation, PaymentMethod } from '../types/rental';
-import { formatDateShort, formatDateTimeShort, formatNaira, parseCurrencyValue } from '../utils/format';
+import { formatDateShort, formatDateTimeShort, formatNaira, formatTenantName, parseCurrencyValue } from '../utils/format';
 import {
   deriveRentYearLabel,
   getEffectivePaymentRentYear,
+  getObligationCategoryLabel,
   getObligationReconciliationPool,
 } from '../utils/paymentReconciliation';
 import { calculateCommissionOnAllocations, checkDuplicateBankReference } from '../utils/rentalEngine';
@@ -272,7 +273,7 @@ export function EditPaymentModal() {
                   const unit = ag ? state.units.find((u) => u.id === ag.unitId) : undefined;
                   return (
                     <option key={t.id} value={t.id}>
-                      {t.firstName} {t.lastName} {unit ? `(${unit.code} · ${unit.name})` : ''}
+                      {formatTenantName(t)} {unit ? `(${unit.code} · ${unit.name})` : ''}
                     </option>
                   );
                 })}
@@ -376,6 +377,7 @@ export function EditPaymentModal() {
                 <option value="POS">POS</option>
                 <option value="Cash">Cash</option>
                 <option value="Cheque">Cheque</option>
+                <option value="Prior Manager / Handover">Prior Manager / Handover</option>
               </select>
             </div>
 
@@ -510,7 +512,7 @@ export function EditPaymentModal() {
                           <span className="hig-subhead font-semibold text-[var(--ink-primary)]">
                             {ob.rentalPeriodLabel}
                           </span>
-                          <StatusBadge label={ob.chargeType} tone="neutral" />
+                          <StatusBadge label={getObligationCategoryLabel(ob)} tone="neutral" />
                           <StatusBadge label={item.computed.settlementPosition} />
                           {item.currentPaymentAllocated > 0 && (
                             <span className="hig-caption font-medium text-[var(--accent-ink)]">

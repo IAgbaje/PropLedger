@@ -88,10 +88,29 @@ test('sanitizeEntityForFirestore enforces blueprint volumetric limits on oversiz
     lawyerCommissionRatePercent: 150,
     receiptSlaHours: 0,
     preDueOffsetsDays: Array.from({ length: 30 }, (_, i) => i),
+    customPaymentCategories: [
+      { id: 'cat-1', label: 'A'.repeat(120), defaultAmount: 12000, commissionEligible: true, createdAt: '2026-01-01T00:00:00Z' },
+    ],
   });
   assert.equal(sanitizedSettings.lawyerCommissionRatePercent, 100);
   assert.equal(sanitizedSettings.receiptSlaHours, 1);
   assert.equal(sanitizedSettings.preDueOffsetsDays.length, 20);
+  assert.equal(sanitizedSettings.customPaymentCategories?.[0].label.length, 80);
+
+  const sanitizedOb = sanitizeEntityForFirestore(
+    'obligations',
+    {
+      ...SEED_STATE.obligations[0],
+      chargeType: 'Other Charge',
+      categoryId: 'cat-1',
+      categoryLabel: 'C'.repeat(120),
+      commissionEligible: true,
+    },
+    'owner1',
+    'TS'
+  );
+  assert.equal((sanitizedOb.categoryLabel as string).length, 80);
+  assert.equal(sanitizedOb.commissionEligible, true);
 });
 
 test('computeSubcollectionDiff identifies creates, updates, and deletes cleanly', () => {

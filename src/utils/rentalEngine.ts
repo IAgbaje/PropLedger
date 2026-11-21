@@ -181,8 +181,8 @@ export function calculateCommissionOnAllocations(
   let eligibleRent = 0;
   for (const alloc of allocations) {
     const ob = obligations.find((o) => o.id === alloc.obligationId);
-    // PRD Section 4.8: Exclude Security Levy and non-rent charges from lawyer commission
-    if (ob && ob.chargeType === 'Rent') {
+    // Security Levy and non-rent charges are excluded unless custom category explicitly enables commission
+    if (ob && (ob.chargeType === 'Rent' || Boolean(ob.commissionEligible))) {
       eligibleRent += alloc.amount;
     }
   }
@@ -334,6 +334,7 @@ export interface ParsedTenancyRow {
   floorOrWing: string;
   firstName: string;
   lastName: string;
+  alias?: string;
   phone: string;
   email: string;
   agreedRent: number;
@@ -348,7 +349,7 @@ export interface ParsedPaymentImportRow {
   tenantName: string;
   amount: number;
   dateReceived: string;
-  method: 'Bank Transfer' | 'POS' | 'Cash' | 'Cheque';
+  method: 'Bank Transfer' | 'POS' | 'Cash' | 'Cheque' | 'Prior Manager / Handover';
   bankReference: string;
   notes: string;
 }
@@ -461,11 +462,12 @@ export function validateTenancyCsvRows(
 
     let firstName = (raw.firstName || '').trim();
     let lastName = (raw.lastName || '').trim();
+    const alias = (raw.alias || raw['Alias'] || raw['Known As'] || raw['Nickname'] || '').trim();
     const combinedTenant = (raw['Tenant Name'] || raw.tenantName || '').trim();
     if ((!firstName || !lastName) && combinedTenant) {
       const parts = combinedTenant.split(/\s+/);
       firstName = parts[0] || '';
-      lastName = parts.slice(1).join(' ') || '(Tenant)';
+      lastName = parts.slice(1).join(' ') || (alias ? '' : '(Tenant)');
     }
 
     const phone = (raw.phone || raw['Phone'] || '').trim();
@@ -503,8 +505,7 @@ export function validateTenancyCsvRows(
     if (!VALID_UNIT_TYPES.includes(unitTypeRaw)) {
       errors.push(`Invalid unitType "${unitTypeRawStr}". Expected: ${VALID_UNIT_TYPES.join(', ')}`);
     }
-    if (!firstName || !lastName) errors.push('Missing tenant firstName or lastName');
-    if (!phone && !email) errors.push('Provide at least phone or email');
+    if (!firstName && !lastName && !alias) errors.push('Missing tenant name or alias');
     if (!Number.isFinite(agreedRent) || agreedRent <= 0) errors.push('agreedRent must be a positive number');
     if (!Number.isFinite(securityLevy) || securityLevy < 0) errors.push('securityLevy must be >= 0');
     if (!isValidIsoDate(startDate)) errors.push('startDate must be YYYY-MM-DD');
@@ -538,6 +539,7 @@ export function validateTenancyCsvRows(
         floorOrWing,
         firstName,
         lastName,
+        alias: alias || undefined,
         phone,
         email,
         agreedRent,
@@ -576,7 +578,7 @@ export function validatePaymentCsvRows(
     if (!Number.isFinite(amount) || amount <= 0) errors.push('amount must be a positive number');
     if (!isValidIsoDate(dateReceived)) errors.push('dateReceived must be YYYY-MM-DD');
 
-    const validMethods = ['Bank Transfer', 'POS', 'Cash', 'Cheque'];
+    const validMethods = ['Bank Transfer', 'POS', 'Cash', 'Cheque', 'Prior Manager / Handover'];
     if (!validMethods.includes(methodRaw)) {
       errors.push(`Invalid method "${methodRaw}"`);
     }

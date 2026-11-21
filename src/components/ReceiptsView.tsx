@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Check, FileCheck2, X } from 'lucide-react';
 import { useRentalStore } from '../context/RentalStore';
 import { exportFilteredCsv } from '../utils/csvExport';
-import { formatDateShort, formatDateTimeShort, formatNaira } from '../utils/format';
+import { formatDateShort, formatDateTimeShort, formatNaira, formatTenantName } from '../utils/format';
 import { StatusBadge } from './StatusBadge';
 import { ExportCsvButton, SearchInput } from './TableToolbarControls';
 
@@ -38,7 +38,7 @@ export function ReceiptsView() {
         const tenant = state.tenants.find((t) => t.id === r.tenantId);
         const unit = state.units.find((u) => u.id === r.unitId);
         const issuer = state.contacts.find((c) => c.id === r.issuerContactId);
-        const searchable = `${r.paymentRef} ${r.officialReceiptNumber || ''} ${r.rentalPeriodCovered} ${r.status} ${tenant?.firstName || ''} ${tenant?.lastName || ''} ${unit?.code || ''} ${unit?.name || ''} ${unit?.type || ''} ${issuer?.name || ''}`.toLowerCase();
+        const searchable = `${r.paymentRef} ${r.officialReceiptNumber || ''} ${r.rentalPeriodCovered} ${r.status} ${formatTenantName(tenant)} ${tenant?.alias || ''} ${unit?.code || ''} ${unit?.name || ''} ${unit?.type || ''} ${issuer?.name || ''}`.toLowerCase();
         if (!searchable.includes(q)) return false;
       }
       return true;
@@ -79,7 +79,7 @@ export function ReceiptsView() {
         return [
           req.paymentRef,
           req.datePaid,
-          tenant ? `${tenant.firstName} ${tenant.lastName}` : '',
+          tenant ? formatTenantName(tenant) : '',
           unit?.code || '',
           unit?.name || '',
           unit?.type || '',
@@ -177,7 +177,7 @@ export function ReceiptsView() {
                         {req.paymentRef}
                       </span>
                       <span className="hig-subhead text-[var(--ink-primary)] block mt-0.5">
-                        {tenant?.firstName} {tenant?.lastName} · {unit?.code}
+                        {formatTenantName(tenant)} · {unit?.code}
                       </span>
                       <span className="hig-caption tabular-nums">
                         Paid {formatDateShort(req.datePaid)} · {req.rentalPeriodCovered}
@@ -323,7 +323,7 @@ export function ReceiptsView() {
                           {req.paymentRef}
                         </span>
                         <span className="text-[var(--ink-primary)] block">
-                          {tenant?.firstName} {tenant?.lastName} · {unit?.code} ({unit?.type})
+                          {formatTenantName(tenant)} · {unit?.code} ({unit?.type})
                         </span>
                         <span className="hig-footnote tabular-nums">
                           Paid {formatDateShort(req.datePaid)}

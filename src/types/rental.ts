@@ -22,7 +22,12 @@ export type ObligationChargeType = 'Rent' | 'Security Levy' | 'Other Charge';
 export type SettlementPosition = 'Unpaid' | 'Partially Paid' | 'Paid / Settled';
 export type DueDatePosition = 'Upcoming' | 'Due' | 'Overdue' | 'Under Review';
 
-export type PaymentMethod = 'Bank Transfer' | 'POS' | 'Cash' | 'Cheque';
+export type PaymentMethod =
+  | 'Bank Transfer'
+  | 'POS'
+  | 'Cash'
+  | 'Cheque'
+  | 'Prior Manager / Handover';
 export type PaymentStatus = 'Confirmed' | 'Reversed';
 
 export type ReceiptRequestStatus =
@@ -116,6 +121,7 @@ export interface Tenant {
   id: string;
   firstName: string;
   lastName: string;
+  alias?: string;
   phone: string;
   email: string;
   archived: boolean;
@@ -151,6 +157,9 @@ export interface RentalObligation {
   tenantId: string;
   unitId: string;
   chargeType: ObligationChargeType;
+  categoryId?: string;
+  categoryLabel?: string; // e.g., "Waste Levy", "Service Charge", "Generator Levy"
+  commissionEligible?: boolean;
   rentalPeriodLabel: string; // e.g., "2026/2027 Annual Rent"
   originalAmount: number;
   dueDate: string; // YYYY-MM-DD
@@ -349,6 +358,14 @@ export interface StakeholderContact {
   receivesArrearsEscalations: boolean;
 }
 
+export interface PaymentCategoryDefinition {
+  id: string;
+  label: string;
+  defaultAmount?: number;
+  commissionEligible: boolean;
+  createdAt: string;
+}
+
 export interface SystemSettings {
   defaultRentCycle: RentCycle;
   securityLevyAmount: number;
@@ -374,6 +391,7 @@ export interface SystemSettings {
   autoSendCustomScheduled: boolean;
   autoSendArrearsEscalations: boolean;
   smsUnitCostNaira: number;
+  customPaymentCategories?: PaymentCategoryDefinition[];
 }
 
 export interface AuditLogEntry {

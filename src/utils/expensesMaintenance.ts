@@ -9,6 +9,7 @@ import type {
   Tenant,
   Unit,
 } from '../types/rental';
+import { formatTenantName } from './format';
 
 export const SHARED_SCOPE_PRESETS = [
   'Compound Area / Exterior',
@@ -145,7 +146,7 @@ export function resolveMaintenanceDisplayScope(
         primaryScope: `${unit.code} · ${unit.name}`,
         scopeCategory: 'Unit',
         unitCode: unit.code,
-        tenantName: tenant ? `${tenant.firstName} ${tenant.lastName}` : undefined,
+        tenantName: tenant ? formatTenantName(tenant) : undefined,
       };
     }
   }

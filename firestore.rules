@@ -121,7 +121,8 @@ service cloud.firestore {
           'sendTenantPaymentConfirmation', 'sendLawyerCommissionAlert',
           'preDueOffsetsDays', 'postDueOffsetsDays', 'post30DayCadenceDays',
           'preferredEmailProvider', 'autoSendPaymentReceipts', 'autoSendScheduledReminders',
-          'autoSendCustomScheduled', 'autoSendArrearsEscalations', 'smsUnitCostNaira'
+          'autoSendCustomScheduled', 'autoSendArrearsEscalations', 'smsUnitCostNaira',
+          'customPaymentCategories'
         ]) &&
         s.defaultRentCycle in ['Yearly', 'Bi-Annual', 'Quarterly', 'Monthly'] &&
         s.securityLevyAmount is number && s.securityLevyAmount >= 0 &&
@@ -148,7 +149,12 @@ service cloud.firestore {
         s.autoSendScheduledReminders is bool &&
         s.autoSendCustomScheduled is bool &&
         s.autoSendArrearsEscalations is bool &&
-        s.smsUnitCostNaira is number && s.smsUnitCostNaira >= 0;
+        s.smsUnitCostNaira is number && s.smsUnitCostNaira >= 0 &&
+        (!('customPaymentCategories' in s) || (
+          s.customPaymentCategories is list &&
+          s.customPaymentCategories.size() <= 30 &&
+          (s.customPaymentCategories.size() == 0 || s.customPaymentCategories[0] is map)
+        ));
     }
 
     function isValidWorkspace(data) {
@@ -180,11 +186,13 @@ service cloud.firestore {
 
     function isValidTenant(data) {
       return data.keys().hasAll(['ownerUid', 'id', 'firstName', 'lastName', 'phone', 'email', 'archived', 'notificationsPaused', 'historicalLateCycles', 'createdAt', 'syncedAt']) &&
-        data.keys().hasOnly(['ownerUid', 'id', 'firstName', 'lastName', 'phone', 'email', 'archived', 'notificationsPaused', 'pauseReason', 'behaviourOverride', 'behaviourOverrideReason', 'historicalLateCycles', 'createdAt', 'notes', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'firstName', 'lastName', 'alias', 'phone', 'email', 'archived', 'notificationsPaused', 'pauseReason', 'behaviourOverride', 'behaviourOverrideReason', 'historicalLateCycles', 'createdAt', 'notes', 'syncedAt']) &&
         isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
         isValidId(data.id) &&
-        data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 80 &&
-        data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 80 &&
+        data.firstName is string && data.firstName.size() <= 80 &&
+        data.lastName is string && data.lastName.size() <= 80 &&
+        isOptString(data, 'alias', 120) &&
+        (data.firstName.size() >= 1 || data.lastName.size() >= 1 || ('alias' in data && data.alias is string && data.alias.size() >= 1)) &&
         data.phone is string && data.phone.size() <= 40 &&
         data.email is string && data.email.size() <= 254 &&
         data.archived is bool &&
@@ -221,13 +229,16 @@ service cloud.firestore {
 
     function isValidObligation(data) {
       return data.keys().hasAll(['ownerUid', 'id', 'agreementId', 'tenantId', 'unitId', 'chargeType', 'rentalPeriodLabel', 'originalAmount', 'dueDate', 'underReview', 'createdAt', 'syncedAt']) &&
-        data.keys().hasOnly(['ownerUid', 'id', 'agreementId', 'tenantId', 'unitId', 'chargeType', 'rentalPeriodLabel', 'originalAmount', 'dueDate', 'underReview', 'reviewReason', 'settledAt', 'settledLateDays', 'createdAt', 'syncedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'id', 'agreementId', 'tenantId', 'unitId', 'chargeType', 'categoryId', 'categoryLabel', 'commissionEligible', 'rentalPeriodLabel', 'originalAmount', 'dueDate', 'underReview', 'reviewReason', 'settledAt', 'settledLateDays', 'createdAt', 'syncedAt']) &&
         isValidId(data.ownerUid) && data.ownerUid == request.auth.uid &&
         isValidId(data.id) &&
         isValidId(data.agreementId) &&
         isValidId(data.tenantId) &&
         isValidId(data.unitId) &&
         data.chargeType in ['Rent', 'Security Levy', 'Other Charge'] &&
+        isOptString(data, 'categoryId', 128) &&
+        isOptString(data, 'categoryLabel', 80) &&
+        isOptBool(data, 'commissionEligible') &&
         data.rentalPeriodLabel is string && data.rentalPeriodLabel.size() >= 1 && data.rentalPeriodLabel.size() <= 120 &&
         data.originalAmount is number && data.originalAmount >= 0 &&
         data.dueDate is string && data.dueDate.size() <= 20 &&
@@ -252,7 +263,7 @@ service cloud.firestore {
         data.dateReceived is string && data.dateReceived.size() <= 20 &&
         isOptString(data, 'timeReceived', 12) &&
         data.dateRecorded is string && data.dateRecorded.size() <= 40 &&
-        data.method in ['Bank Transfer', 'POS', 'Cash', 'Cheque'] &&
+        data.method in ['Bank Transfer', 'POS', 'Cash', 'Cheque', 'Prior Manager / Handover'] &&
         data.bankReference is string && data.bankReference.size() <= 120 &&
         data.status in ['Confirmed', 'Reversed'] &&
         data.allocations is list && data.allocations.size() <= 50 &&
@@ -561,7 +572,7 @@ service cloud.firestore {
           incoming().ownerUid == existing().ownerUid &&
           incoming().id == existing().id &&
           incoming().createdAt == existing().createdAt &&
-          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'tenantId', 'rentalPeriodLabel', 'originalAmount', 'dueDate', 'underReview', 'reviewReason', 'settledAt', 'settledLateDays', 'syncedAt']));
+          (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'tenantId', 'categoryId', 'categoryLabel', 'commissionEligible', 'rentalPeriodLabel', 'originalAmount', 'dueDate', 'underReview', 'reviewReason', 'settledAt', 'settledLateDays', 'syncedAt']));
         allow delete: if isVerifiedUser() && isValidId(workspaceId) && isValidId(obligationId) && (isWorkspaceOwner(workspaceId) || isAdmin());
       }
 

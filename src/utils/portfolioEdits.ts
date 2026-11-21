@@ -9,6 +9,7 @@ import type {
   UnitOccupancyStatus,
   UnitType,
 } from '../types/rental';
+import { formatTenantName } from './format';
 
 export type IdGenerator = (prefix: string) => string;
 
@@ -57,6 +58,7 @@ function recomputeUnitOccupancy(
 export interface TenantEditPayload {
   firstName: string;
   lastName: string;
+  alias?: string;
   phone: string;
   email: string;
   historicalLateCycles?: number;
@@ -108,13 +110,11 @@ export function applyTenantEdit(
 
   const firstName = payload.firstName.trim();
   const lastName = payload.lastName.trim();
+  const alias = payload.alias !== undefined ? payload.alias.trim() : target.alias?.trim() || '';
   const phone = payload.phone.trim();
   const email = payload.email.trim();
-  if (!firstName || !lastName) {
-    return { ok: false, error: 'First and last name are required.' };
-  }
-  if (!phone && !email) {
-    return { ok: false, error: 'Provide at least a phone number or email address.' };
+  if (!firstName && !lastName && !alias) {
+    return { ok: false, error: 'Enter at least a name or an alias for this tenant.' };
   }
 
   const lateCycles =
@@ -126,6 +126,7 @@ export function applyTenantEdit(
     ...target,
     firstName,
     lastName,
+    alias: alias || undefined,
     phone,
     email,
     historicalLateCycles: lateCycles,
@@ -187,7 +188,7 @@ export function applyTenantEdit(
 
     if (conflictingAg && !payload.replaceExistingOccupant) {
       const otherTenant = state.tenants.find((t) => t.id === conflictingAg.tenantId);
-      const otherName = otherTenant ? `${otherTenant.firstName} ${otherTenant.lastName}` : 'another tenant';
+      const otherName = otherTenant ? formatTenantName(otherTenant) : 'another tenant';
       return {
         ok: false,
         error: `${targetUnit.code} is currently occupied by ${otherName}. Choose another unit or enable replacing the current occupant.`,
@@ -375,7 +376,7 @@ export function applyTenantEdit(
   }
 
   const nextTenants = state.tenants.map((t) => (t.id === tenantId ? updatedTenant : t));
-  const fullName = `${updatedTenant.firstName} ${updatedTenant.lastName}`;
+  const fullName = formatTenantName(updatedTenant);
   const summary = `Updated tenant ${fullName}${occupancyAuditDetail ? ` · ${occupancyAuditDetail}` : ''}`;
 
   return {
@@ -391,8 +392,8 @@ export function applyTenantEdit(
       receiptRequests: nextReceipts,
       auditLogs: [
         createAuditEntry(idGen, state.property.managerName, 'Tenant', tenantId, 'Tenant Updated', summary, {
-          previousValue: `${target.firstName} ${target.lastName} · ${target.phone}`,
-          newValue: `${fullName} · ${updatedTenant.phone}`,
+          previousValue: `${formatTenantName(target)} · ${target.phone || target.email || 'No contact'}`,
+          newValue: `${fullName} · ${updatedTenant.phone || updatedTenant.email || 'No contact'}`,
         }),
         ...state.auditLogs,
       ],
@@ -425,7 +426,7 @@ export function getTenantDeletionImpact(state: RentalAppState, tenantId: string)
   );
 
   return {
-    tenantName: `${target.firstName} ${target.lastName}`,
+    tenantName: formatTenantName(target),
     activeUnitCodes: Array.from(new Set(activeUnitCodes)),
     agreementsCount: tenantAgs.length,
     obligationsCount: state.obligations.filter((o) => o.tenantId === tenantId).length,
@@ -462,7 +463,7 @@ export function applyTenantDelete(
     .filter((u) => removedUnitIds.has(u.id) && u.occupancyStatus === 'Vacant')
     .map((u) => u.code);
 
-  const fullName = `${target.firstName} ${target.lastName}`;
+  const fullName = formatTenantName(target);
   const summary = `Deleted tenant ${fullName}${freedCodes.length > 0 ? ` and vacated ${freedCodes.join(', ')}` : ''}.`;
 
   return {
@@ -481,7 +482,7 @@ export function applyTenantDelete(
       notifications: state.notifications.filter((n) => n.tenantId !== tenantId),
       auditLogs: [
         createAuditEntry(idGen, state.property.managerName, 'Tenant', tenantId, 'Tenant Deleted', summary, {
-          previousValue: `${fullName} · ${target.phone}`,
+          previousValue: `${fullName} · ${target.phone || target.email || 'No contact'}`,
         }),
         ...state.auditLogs,
       ],
@@ -501,6 +502,7 @@ export interface UnitEditAndOccupantPayload {
   newTenant?: {
     firstName: string;
     lastName: string;
+    alias?: string;
     phone: string;
     email: string;
     notes?: string;
@@ -571,16 +573,17 @@ export function applyUnitEditAndOccupant(
       }
     } else {
       const nt = payload.newTenant;
-      if (!nt || !nt.firstName.trim() || !nt.lastName.trim()) {
-        return { ok: false, error: 'First and last name are required for a new occupant.' };
-      }
-      if (!nt.phone.trim() && !nt.email.trim()) {
-        return { ok: false, error: 'Provide at least a phone number or email for the new occupant.' };
+      const ntFirst = nt?.firstName.trim() || '';
+      const ntLast = nt?.lastName.trim() || '';
+      const ntAlias = nt?.alias?.trim() || '';
+      if (!nt || (!ntFirst && !ntLast && !ntAlias)) {
+        return { ok: false, error: 'Enter a name or an alias for the new occupant.' };
       }
       assignedTenant = {
         id: idGen('t'),
-        firstName: nt.firstName.trim(),
-        lastName: nt.lastName.trim(),
+        firstName: ntFirst,
+        lastName: ntLast,
+        alias: ntAlias || undefined,
         phone: nt.phone.trim(),
         email: nt.email.trim(),
         archived: false,
@@ -661,7 +664,7 @@ export function applyUnitEditAndOccupant(
         });
       }
 
-      occupantDetail = `Updated occupancy terms for ${assignedTenant.firstName} ${assignedTenant.lastName}.`;
+      occupantDetail = `Updated occupancy terms for ${formatTenantName(assignedTenant)}.`;
     } else {
       // Terminate previous occupant agreement on this unit if one existed
       if (currentUnitAg) {
@@ -714,7 +717,7 @@ export function applyUnitEditAndOccupant(
         });
       }
 
-      occupantDetail = `Assigned occupant ${assignedTenant.firstName} ${assignedTenant.lastName}.`;
+      occupantDetail = `Assigned occupant ${formatTenantName(assignedTenant)}.`;
     }
 
     if (finalStatus !== 'Under Maintenance') {
@@ -773,7 +776,7 @@ export function getUnitDeletionImpact(state: RentalAppState, unitId: string): Un
 
   return {
     unitLabel: `${unit.code} · ${unit.name}`,
-    occupantName: occupant ? `${occupant.firstName} ${occupant.lastName}` : undefined,
+    occupantName: occupant ? formatTenantName(occupant) : undefined,
     agreementsCount: state.agreements.filter((a) => a.unitId === unitId).length,
     obligationsCount: state.obligations.filter((o) => o.unitId === unitId).length,
     paymentsCount: state.payments.filter((p) => p.unitId === unitId && p.status === 'Confirmed').length,

@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { AlertTriangle, BellOff, BellRing, Calendar, FileText, Pencil, Plus, RefreshCw, Send, Trash2, X } from 'lucide-react';
 import { useRentalStore } from '../context/RentalStore';
 import type { BehaviourIndicator, RentCycle } from '../types/rental';
-import { formatDateShort, formatNaira, formatPaymentTimestamp, parseCurrencyValue } from '../utils/format';
+import { formatDateShort, formatNaira, formatPaymentTimestamp, formatTenantName, getTenantLegalName, parseCurrencyValue } from '../utils/format';
 import { analyzeTenantArrears } from '../utils/multiYearArrears';
-import { getEffectivePaymentRentYear } from '../utils/paymentReconciliation';
+import { getEffectivePaymentRentYear, getObligationCategoryLabel } from '../utils/paymentReconciliation';
 import { AddCycleObligationInline } from './AddCycleObligationInline';
 import { CurrencyInput } from './CurrencyInput';
 import { DeleteTenantConfirmModal, EditTenantModal } from './PortfolioEditModals';
@@ -80,7 +80,13 @@ export function TenantInspectorDrawer() {
       ...arrearsProfile.unpaidLevyCycles.map(
         (c) => `• ${c.periodLabel}: ${formatNaira(c.amountOutstanding)}`
       ),
+      ...arrearsProfile.unpaidOtherCycles.map(
+        (c) => `• ${c.periodLabel}: ${formatNaira(c.amountOutstanding)}`
+      ),
     ];
+
+    const tenantDisplayName = formatTenantName(tenant);
+    const tenantGreetingName = tenant.firstName?.trim() || tenant.alias?.trim() || tenant.lastName?.trim() || 'Tenant';
 
     openComposerFor({
       directoryRecipientIds: [`tenant:${tenant.id}`],
@@ -89,16 +95,16 @@ export function TenantInspectorDrawer() {
       intent: arrearsProfile.isMultiYear ? 'Multi-Year Arrears Notice' : 'Tenant Notice',
       subject:
         totalOutstanding > 0
-          ? `${arrearsProfile.isMultiYear ? 'URGENT Multi-Year Arrears' : 'Outstanding Dues'}: ${activeUnit?.code || 'Unit'} — ${tenant.firstName} ${tenant.lastName}`
+          ? `${arrearsProfile.isMultiYear ? 'URGENT Multi-Year Arrears' : 'Outstanding Dues'}: ${activeUnit?.code || 'Unit'} — ${tenantDisplayName}`
           : `Tenancy Communication: ${activeUnit?.code || 'Unit'} — ${state.property.name}`,
       emailBody:
         totalOutstanding > 0
-          ? `Dear ${tenant.firstName} ${tenant.lastName},\n\nOur ledger for ${activeUnit?.code || 'your unit'} at ${state.property.name} shows a total open balance of ${formatNaira(totalOutstanding)}:\n\n${lines.join('\n')}\n\nPlease remit payment and confirm details with ${state.property.managerName}.\n\nRegards,\n${state.property.managerName}`
-          : `Dear ${tenant.firstName} ${tenant.lastName},\n\nWriting from ${state.property.name} regarding ${activeUnit?.code || 'your tenancy'}.\n\nRegards,\n${state.property.managerName}`,
+          ? `Dear ${tenantDisplayName},\n\nOur ledger for ${activeUnit?.code || 'your unit'} at ${state.property.name} shows a total open balance of ${formatNaira(totalOutstanding)}:\n\n${lines.join('\n')}\n\nPlease remit payment and confirm details with ${state.property.managerName}.\n\nRegards,\n${state.property.managerName}`
+          : `Dear ${tenantDisplayName},\n\nWriting from ${state.property.name} regarding ${activeUnit?.code || 'your tenancy'}.\n\nRegards,\n${state.property.managerName}`,
       smsBody:
         totalOutstanding > 0
-          ? `${state.property.name}: Dear ${tenant.firstName}, your ${activeUnit?.code || ''} balance is ${formatNaira(totalOutstanding)} (${arrearsProfile.unpaidYears.join(', ') || 'open dues'}). Please remit & confirm.`
-          : `${state.property.name}: Hello ${tenant.firstName}, please contact ${state.property.managerName} regarding ${activeUnit?.code || 'your tenancy'}.`,
+          ? `${state.property.name}: Dear ${tenantGreetingName}, your ${activeUnit?.code || ''} balance is ${formatNaira(totalOutstanding)} (${arrearsProfile.unpaidYears.join(', ') || 'open dues'}). Please remit & confirm.`
+          : `${state.property.name}: Hello ${tenantGreetingName}, please contact ${state.property.managerName} regarding ${activeUnit?.code || 'your tenancy'}.`,
     });
   };
 
@@ -150,14 +156,22 @@ export function TenantInspectorDrawer() {
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 id="tenant-drawer-title" className="hig-title-3">
-                {tenant.firstName} {tenant.lastName}
+                {getTenantLegalName(tenant) || tenant.alias || 'Unknown Tenant'}
               </h3>
               <StatusBadge label={behaviour} />
               {arrearsProfile.isMultiYear && <StatusBadge label="Multi-Year Debtor" />}
               {tenant.notificationsPaused && <StatusBadge label="Reminders Paused" tone="warning" />}
             </div>
             <p className="hig-footnote mt-1 break-words">
-              {tenant.phone} <span aria-hidden="true">·</span> {tenant.email || 'No email'}
+              {getTenantLegalName(tenant) && tenant.alias?.trim() ? (
+                <>
+                  <span className="font-medium text-[var(--ink-secondary)]">
+                    aka &ldquo;{tenant.alias.trim()}&rdquo;
+                  </span>{' '}
+                  <span aria-hidden="true">·</span>{' '}
+                </>
+              ) : null}
+              {tenant.phone || 'No phone'} <span aria-hidden="true">·</span> {tenant.email || 'No email'}
               {activeUnit && ` · ${activeUnit.code}`}
             </p>
           </div>
@@ -191,8 +205,14 @@ export function TenantInspectorDrawer() {
                 </p>
                 <p className="leading-relaxed">
                   Unpaid Rent: <strong className="font-mono-nums">{formatNaira(arrearsProfile.unpaidRentAmount)}</strong> ·
-                  Unpaid Security Levy: <strong className="font-mono-nums">{formatNaira(arrearsProfile.unpaidLevyAmount)}</strong> ·
-                  Oldest overdue: <strong className="font-mono-nums">{arrearsProfile.maxDaysPastDue}d</strong>
+                  Unpaid Security Levy: <strong className="font-mono-nums">{formatNaira(arrearsProfile.unpaidLevyAmount)}</strong>
+                  {arrearsProfile.unpaidOtherAmount > 0 && (
+                    <>
+                      {' '}· Unpaid Other Charges:{' '}
+                      <strong className="font-mono-nums">{formatNaira(arrearsProfile.unpaidOtherAmount)}</strong>
+                    </>
+                  )}{' '}
+                  · Oldest overdue: <strong className="font-mono-nums">{arrearsProfile.maxDaysPastDue}d</strong>
                 </p>
               </div>
             </div>
@@ -207,7 +227,44 @@ export function TenantInspectorDrawer() {
               <p className="hig-title-1 font-mono-nums mt-0.5">
                 {formatNaira(totalOutstanding)}
               </p>
-              <p className="hig-footnote mt-1">
+              {tenantObligations.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[0.8125rem] tabular-nums">
+                  <span
+                    className="font-medium"
+                    style={{
+                      color:
+                        arrearsProfile.unpaidRentAmount > 0
+                          ? 'var(--ink-primary)'
+                          : 'var(--status-success-ink)',
+                    }}
+                  >
+                    Rent:{' '}
+                    {arrearsProfile.unpaidRentAmount > 0
+                      ? `${formatNaira(arrearsProfile.unpaidRentAmount)} Unpaid`
+                      : '₦0 (Settled)'}
+                  </span>
+                  <span
+                    className="font-medium"
+                    style={{
+                      color:
+                        arrearsProfile.unpaidLevyAmount > 0
+                          ? 'var(--status-warning-ink)'
+                          : 'var(--status-success-ink)',
+                    }}
+                  >
+                    Security Levy:{' '}
+                    {arrearsProfile.unpaidLevyAmount > 0
+                      ? `${formatNaira(arrearsProfile.unpaidLevyAmount)} Unpaid`
+                      : '₦0 (Settled)'}
+                  </span>
+                  {arrearsProfile.unpaidOtherAmount > 0 && (
+                    <span className="font-medium text-[var(--ink-primary)]">
+                      Other Charges: {formatNaira(arrearsProfile.unpaidOtherAmount)} Unpaid
+                    </span>
+                  )}
+                </div>
+              )}
+              <p className="hig-footnote mt-1.5">
                 Historical late cycles recorded:{' '}
                 <span className="font-mono-nums font-semibold text-[var(--ink-primary)]">
                   {tenant.historicalLateCycles}
@@ -255,7 +312,7 @@ export function TenantInspectorDrawer() {
                 type="button"
                 onClick={() => setShowEditModal(true)}
                 className="hig-btn-secondary"
-                aria-label={`Edit details for ${tenant.firstName} ${tenant.lastName}`}
+                aria-label={`Edit details for ${formatTenantName(tenant)}`}
               >
                 <Pencil className="w-4 h-4" />
                 <span>Edit Details</span>
@@ -265,7 +322,7 @@ export function TenantInspectorDrawer() {
                 onClick={() => setShowDeleteModal(true)}
                 className="hig-btn-secondary"
                 style={{ color: 'var(--status-danger-ink)' }}
-                aria-label={`Delete ${tenant.firstName} ${tenant.lastName}`}
+                aria-label={`Delete ${formatTenantName(tenant)}`}
               >
                 <Trash2 className="w-4 h-4" />
                 <span>Delete</span>
@@ -559,8 +616,11 @@ export function TenantInspectorDrawer() {
                       <span className="hig-subhead font-semibold text-[var(--ink-primary)]">
                         {co.obligation.rentalPeriodLabel}
                       </span>
+                      <StatusBadge label={getObligationCategoryLabel(co.obligation)} tone="neutral" />
                       <StatusBadge label={co.settlementPosition} />
-                      <StatusBadge label={co.dueDatePosition} />
+                      {co.settlementPosition !== 'Paid / Settled' && (
+                        <StatusBadge label={co.dueDatePosition} />
+                      )}
                     </div>
                     <p className="hig-footnote mt-1 tabular-nums">
                       Due {formatDateShort(co.obligation.dueDate)} · Paid {formatNaira(co.amountAllocated)} of {formatNaira(co.obligation.originalAmount)}

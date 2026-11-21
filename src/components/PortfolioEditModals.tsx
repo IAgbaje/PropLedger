@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { useRentalStore } from '../context/RentalStore';
 import type { RentCycle, UnitOccupancyStatus, UnitType } from '../types/rental';
-import { formatNaira, parseCurrencyValue } from '../utils/format';
+import { formatNaira, formatTenantName, parseCurrencyValue } from '../utils/format';
 import {
   getActiveTenantAgreement,
   getActiveUnitAgreement,
@@ -34,6 +34,7 @@ export function EditTenantModal({
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [alias, setAlias] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [lateCycles, setLateCycles] = useState('0');
@@ -52,6 +53,7 @@ export function EditTenantModal({
     if (!tenant) return;
     setFirstName(tenant.firstName);
     setLastName(tenant.lastName);
+    setAlias(tenant.alias || '');
     setPhone(tenant.phone);
     setEmail(tenant.email);
     setLateCycles(String(tenant.historicalLateCycles ?? 0));
@@ -102,6 +104,7 @@ export function EditTenantModal({
     const res = updateTenantDetailsAndOccupancy(tenant.id, {
       firstName,
       lastName,
+      alias,
       phone,
       email,
       historicalLateCycles: Number(lateCycles) || 0,
@@ -144,7 +147,7 @@ export function EditTenantModal({
               Edit Tenant Details &amp; Unit Assignment
             </h3>
             <p className="hig-caption mt-0.5 truncate">
-              {tenant.firstName} {tenant.lastName}
+              {formatTenantName(tenant)}
             </p>
           </div>
           <button
@@ -185,8 +188,8 @@ export function EditTenantModal({
                   type="text"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Optional if alias entered"
                   className="hig-input w-full"
-                  required
                 />
               </div>
               <div>
@@ -198,8 +201,21 @@ export function EditTenantModal({
                   type="text"
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Optional if alias entered"
                   className="hig-input w-full"
-                  required
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label htmlFor="edit-tenant-alias" className="block hig-caption mb-1.5">
+                  Alias / Known As
+                </label>
+                <input
+                  id="edit-tenant-alias"
+                  type="text"
+                  value={alias}
+                  onChange={(e) => setAlias(e.target.value)}
+                  placeholder="e.g. Mama T, Baba Ibeji, Iya Risi (optional)"
+                  className="hig-input w-full"
                 />
               </div>
               <div>
@@ -286,7 +302,7 @@ export function EditTenantModal({
                     : undefined;
                   const suffix =
                     occTenant && occTenant.id !== tenant.id
-                      ? `Occupied by ${occTenant.firstName} ${occTenant.lastName}`
+                      ? `Occupied by ${formatTenantName(occTenant)}`
                       : occTenant?.id === tenant.id
                       ? 'Current Unit'
                       : u.occupancyStatus;
@@ -317,7 +333,7 @@ export function EditTenantModal({
                 <span>
                   This unit is currently assigned to{' '}
                   <strong>
-                    {conflictingTenant.firstName} {conflictingTenant.lastName}
+                    {formatTenantName(conflictingTenant)}
                   </strong>
                   . Replace occupant and end their active tenancy on this unit.
                 </span>
@@ -579,6 +595,7 @@ export function EditUnitOccupantModal({
   const [existingTenantId, setExistingTenantId] = useState('');
   const [newFirst, setNewFirst] = useState('');
   const [newLast, setNewLast] = useState('');
+  const [newAlias, setNewAlias] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [newEmail, setNewEmail] = useState('');
 
@@ -621,6 +638,7 @@ export function EditUnitOccupantModal({
     }
     setNewFirst('');
     setNewLast('');
+    setNewAlias('');
     setNewPhone('');
     setNewEmail('');
     setError('');
@@ -646,6 +664,7 @@ export function EditUnitOccupantModal({
           ? {
               firstName: newFirst,
               lastName: newLast,
+              alias: newAlias,
               phone: newPhone,
               email: newEmail,
             }
@@ -865,7 +884,7 @@ export function EditUnitOccupantModal({
                     >
                       {state.tenants.map((t) => (
                         <option key={t.id} value={t.id}>
-                          {t.firstName} {t.lastName} ({t.phone || t.email})
+                          {formatTenantName(t)} ({t.phone || t.email || 'No contact on file'})
                         </option>
                       ))}
                     </select>
@@ -881,8 +900,8 @@ export function EditUnitOccupantModal({
                         type="text"
                         value={newFirst}
                         onChange={(e) => setNewFirst(e.target.value)}
+                        placeholder="Optional if alias entered"
                         className="hig-input w-full"
-                        required
                       />
                     </div>
                     <div>
@@ -894,8 +913,21 @@ export function EditUnitOccupantModal({
                         type="text"
                         value={newLast}
                         onChange={(e) => setNewLast(e.target.value)}
+                        placeholder="Optional if alias entered"
                         className="hig-input w-full"
-                        required
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label htmlFor="edit-unit-new-alias" className="block hig-caption mb-1.5">
+                        Alias / Known As
+                      </label>
+                      <input
+                        id="edit-unit-new-alias"
+                        type="text"
+                        value={newAlias}
+                        onChange={(e) => setNewAlias(e.target.value)}
+                        placeholder="e.g. Mama T, Baba Ibeji, Iya Risi (optional)"
+                        className="hig-input w-full"
                       />
                     </div>
                     <div>
@@ -907,9 +939,8 @@ export function EditUnitOccupantModal({
                         type="text"
                         value={newPhone}
                         onChange={(e) => setNewPhone(e.target.value)}
-                        placeholder="+234 80..."
+                        placeholder="Optional (+234 80...)"
                         className="hig-input w-full font-mono-nums"
-                        required
                       />
                     </div>
                     <div>

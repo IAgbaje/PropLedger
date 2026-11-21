@@ -5,11 +5,13 @@ import type {
   Unit,
   UnitType,
 } from '../types/rental';
+import { formatTenantName } from './format';
 import { diffDays, type ComputedObligation } from './rentalEngine';
 
 export interface UnpaidCycleItem {
   obligationId: string;
   chargeType: 'Rent' | 'Security Levy' | 'Other Charge';
+  categoryLabel?: string;
   periodLabel: string;
   year: string;
   dueDate: string;
@@ -34,6 +36,7 @@ export interface TenantArrearsProfile {
   totalOutstanding: number;
   unpaidRentCycles: UnpaidCycleItem[];
   unpaidLevyCycles: UnpaidCycleItem[];
+  unpaidOtherCycles: UnpaidCycleItem[];
   unpaidYears: string[];
   unpaidRentCycleCount: number;
   unpaidObligationCount: number;
@@ -65,6 +68,7 @@ export function analyzeTenantArrears(
   let unpaidOtherAmount = 0;
   const unpaidRentCycles: UnpaidCycleItem[] = [];
   const unpaidLevyCycles: UnpaidCycleItem[] = [];
+  const unpaidOtherCycles: UnpaidCycleItem[] = [];
   const yearSet = new Set<string>();
   let maxDaysPastDue = 0;
   let hasUnderReview = false;
@@ -80,6 +84,7 @@ export function analyzeTenantArrears(
     const item: UnpaidCycleItem = {
       obligationId: co.obligation.id,
       chargeType: co.obligation.chargeType,
+      categoryLabel: co.obligation.categoryLabel,
       periodLabel: co.obligation.rentalPeriodLabel,
       year,
       dueDate: co.obligation.dueDate,
@@ -97,7 +102,7 @@ export function analyzeTenantArrears(
       unpaidLevyCycles.push(item);
     } else {
       unpaidOtherAmount += co.amountOutstanding;
-      unpaidLevyCycles.push(item);
+      unpaidOtherCycles.push(item);
     }
   }
 
@@ -119,7 +124,7 @@ export function analyzeTenantArrears(
   if (totalOutstanding > 0) {
     if (isMultiYear) {
       tier = 'Multi-Year Debtor';
-    } else if (hasMultipleDues && (maxDaysPastDue > 0 || unpaidLevyAmount > 0)) {
+    } else if (hasMultipleDues && (maxDaysPastDue > 0 || unpaidLevyAmount > 0 || unpaidOtherAmount > 0)) {
       tier = 'Multiple Dues (Rent + Levy)';
     } else if (hasUnderReview && maxDaysPastDue === 0 && unpaidRentAmount > 0) {
       tier = 'Under Review';
@@ -138,6 +143,7 @@ export function analyzeTenantArrears(
     totalOutstanding,
     unpaidRentCycles,
     unpaidLevyCycles,
+    unpaidOtherCycles,
     unpaidYears,
     unpaidRentCycleCount,
     unpaidObligationCount,
@@ -341,7 +347,7 @@ export function buildUpcomingDueDates(
     items.push({
       id: co.obligation.id,
       tenantId: tenant.id,
-      tenantName: `${tenant.firstName} ${tenant.lastName}`,
+      tenantName: formatTenantName(tenant),
       unitCode: unit.code,
       unitName: unit.name,
       dueDate: co.obligation.dueDate,
@@ -365,7 +371,7 @@ export function buildUpcomingDueDates(
     items.push({
       id: `ag-due-${ag.id}`,
       tenantId: tenant.id,
-      tenantName: `${tenant.firstName} ${tenant.lastName}`,
+      tenantName: formatTenantName(tenant),
       unitCode: unit.code,
       unitName: unit.name,
       dueDate: ag.dueDate,

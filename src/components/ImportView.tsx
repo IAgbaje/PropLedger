@@ -14,9 +14,9 @@ import {
 import { StatusBadge } from './StatusBadge';
 import { ExportCsvButton, SearchInput } from './TableToolbarControls';
 
-const TENANCY_TEMPLATE = `unitCode,unitName,unitType,floorOrWing,firstName,lastName,phone,email,agreedRent,securityLevy,startDate,endDate,dueDate
-B-203,Suite B3 (Bedroom),Bedroom,Second Floor,Ngozi,Okafor,+234 803 551 2290,ngozi.okafor@example.ng,1350000,4000,2026-11-01,2027-10-31,2026-11-01
-Container-06,Container 06 (Alagbada),Container Shop,Frontage,Tunde,Balogun,+234 805 112 9044,tunde.balogun@example.ng,95000,4000,2026-11-10,2027-11-09,2026-11-10`;
+const TENANCY_TEMPLATE = `unitCode,unitName,unitType,floorOrWing,firstName,lastName,alias,phone,email,agreedRent,securityLevy,startDate,endDate,dueDate
+B-203,Suite B3 (Bedroom),Bedroom,Second Floor,Ngozi,Okafor,Mama Ngozi,+234 803 551 2290,ngozi.okafor@example.ng,1350000,4000,2026-11-01,2027-10-31,2026-11-01
+Container-06,Container 06 (Alagbada),Container Shop,Frontage,Tunde,Balogun,Baba T,+234 805 112 9044,tunde.balogun@example.ng,95000,4000,2026-11-10,2027-11-09,2026-11-10`;
 
 const MESSY_SPREADSHEET_SAMPLE = `Tenant Name,Unit Number,Unit Type,Agreed Amount per cycle,Rent cycle Owed,Amount Owed,Security Levy (4k)
 Mrs Lawal,Shop 03,Shop,200000,Paying to Aisha,0,4000
@@ -133,7 +133,9 @@ export function ImportView() {
         const unitCode = row.raw.unitCode || '';
         const tenantName =
           row.raw.tenantName ||
-          [row.raw.firstName, row.raw.lastName].filter(Boolean).join(' ');
+          [row.raw.firstName, row.raw.lastName, row.raw.alias ? `(${row.raw.alias})` : '']
+            .filter(Boolean)
+            .join(' ');
         return [
           row.rowNumber,
           row.status,
@@ -291,7 +293,7 @@ export function ImportView() {
             </label>
           ) : (
             <span className="hig-footnote">
-              Supports Room, Bedroom, Room &amp; Parlour, Shop, Kiosk, Container Shop, plus spreadsheet columns (Tenant Name, Unit Number, Agreed Amount per cycle, Rent cycle Owed, Security Levy) with automatic cleanup warnings.
+              Supports Room, Bedroom, Room &amp; Parlour, Shop, Kiosk, Container Shop, optional alias, phone/email, and spreadsheet columns (Tenant Name, Unit Number, Agreed Amount per cycle, Rent cycle Owed, Security Levy).
             </span>
           )}
 

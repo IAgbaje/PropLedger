@@ -2,8 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { AlertTriangle, Calendar, CalendarPlus, Plus, Send, X } from 'lucide-react';
 import { useRentalStore } from '../context/RentalStore';
 import { exportFilteredCsv } from '../utils/csvExport';
-import { formatDateShort, formatNaira, parseCurrencyValue } from '../utils/format';
+import { formatDateShort, formatNaira, formatTenantName, parseCurrencyValue } from '../utils/format';
 import { buildAllTenantArrearsMap } from '../utils/multiYearArrears';
+import { getObligationCategoryLabel } from '../utils/paymentReconciliation';
 import { CurrencyInput } from './CurrencyInput';
 import { StatusBadge } from './StatusBadge';
 import { ExportCsvButton, SearchInput } from './TableToolbarControls';
@@ -66,7 +67,7 @@ export function ArrearsPromisesView() {
         if (scopeFilter === 'levy-dues' && !prof.hasUnpaidSecurityLevy) return false;
         if (scopeFilter === 'under-review' && !prof.hasUnderReview) return false;
         if (!q) return true;
-        const text = `${tenant.firstName} ${tenant.lastName} ${unit?.code || ''} ${unit?.name || ''} ${prof.unpaidYears.join(' ')}`.toLowerCase();
+        const text = `${formatTenantName(tenant)} ${tenant.alias || ''} ${unit?.code || ''} ${unit?.name || ''} ${prof.unpaidYears.join(' ')}`.toLowerCase();
         return text.includes(q);
       })
       .sort((a, b) => {
@@ -96,7 +97,7 @@ export function ArrearsPromisesView() {
         if (!q) return true;
         const tenant = state.tenants.find((t) => t.id === c.obligation.tenantId);
         const unit = state.units.find((u) => u.id === c.obligation.unitId);
-        const text = `${tenant?.firstName} ${tenant?.lastName} ${unit?.code} ${unit?.name} ${c.obligation.rentalPeriodLabel}`.toLowerCase();
+        const text = `${formatTenantName(tenant)} ${tenant?.alias || ''} ${unit?.code} ${unit?.name} ${c.obligation.rentalPeriodLabel}`.toLowerCase();
         return text.includes(q);
       })
       .sort((a, b) => b.daysPastDue - a.daysPastDue);
@@ -121,7 +122,7 @@ export function ArrearsPromisesView() {
           return u ? `${u.code} ${u.name}` : '';
         })
         .join(' ');
-      const text = `${tenant?.firstName} ${tenant?.lastName} ${unitText} ${ec.commitment.notes}`.toLowerCase();
+      const text = `${formatTenantName(tenant)} ${tenant?.alias || ''} ${unitText} ${ec.commitment.notes}`.toLowerCase();
       return text.includes(q);
     });
   }, [evaluatedCommitments, q, state.tenants, state.obligations, state.agreements, state.units]);
@@ -161,6 +162,9 @@ export function ArrearsPromisesView() {
       ...prof.unpaidLevyCycles.map(
         (c) => `• ${c.periodLabel}: ${formatNaira(c.amountOutstanding)}`
       ),
+      ...prof.unpaidOtherCycles.map(
+        (c) => `• ${c.periodLabel}: ${formatNaira(c.amountOutstanding)}`
+      ),
     ];
 
     const recipientIds = [`tenant:${tenant.id}`];
@@ -168,14 +172,17 @@ export function ArrearsPromisesView() {
       recipientIds.push(`contact:${lawyer.id}`);
     }
 
+    const tenantDisplayName = formatTenantName(tenant);
+    const tenantGreetingName = tenant.firstName?.trim() || tenant.alias?.trim() || tenant.lastName?.trim() || 'Tenant';
+
     openComposerFor({
       directoryRecipientIds: recipientIds,
       linkedTenantId: tenant.id,
       channelMode: 'Both',
       intent: prof.isMultiYear ? 'Multi-Year Arrears & Legal Escalation' : 'Overdue Rent & Levy Reminder',
-      subject: `${prof.isMultiYear ? 'URGENT Multi-Year Arrears Notice' : 'Overdue Arrears Reminder'}: ${unit?.code || 'Unit'} — ${tenant.firstName} ${tenant.lastName}`,
-      emailBody: `Dear ${tenant.firstName} ${tenant.lastName},\n\nThis notice outlines the total unpaid balance of ${formatNaira(prof.totalOutstanding)} on ${unit?.code || 'your unit'} at ${state.property.name}:\n\n${itemLines.join('\n')}\n\nKindly arrange immediate settlement or reach out to ${state.property.managerName}${lawyer ? ` / Legal Counsel (${lawyer.name})` : ''} with your payment schedule.\n\nRegards,\n${state.property.managerName}\n${state.property.name}`,
-      smsBody: `${state.property.name}: ${tenant.firstName} (${unit?.code || ''}), balance ${formatNaira(prof.totalOutstanding)} across ${prof.unpaidYears.length ? prof.unpaidYears.join(' & ') : 'open dues'} is past due. Please remit & confirm with ${state.property.managerName}.`,
+      subject: `${prof.isMultiYear ? 'URGENT Multi-Year Arrears Notice' : 'Overdue Arrears Reminder'}: ${unit?.code || 'Unit'} — ${tenantDisplayName}`,
+      emailBody: `Dear ${tenantDisplayName},\n\nThis notice outlines the total unpaid balance of ${formatNaira(prof.totalOutstanding)} on ${unit?.code || 'your unit'} at ${state.property.name}:\n\n${itemLines.join('\n')}\n\nKindly arrange immediate settlement or reach out to ${state.property.managerName}${lawyer ? ` / Legal Counsel (${lawyer.name})` : ''} with your payment schedule.\n\nRegards,\n${state.property.managerName}\n${state.property.name}`,
+      smsBody: `${state.property.name}: ${tenantGreetingName} (${unit?.code || ''}), balance ${formatNaira(prof.totalOutstanding)} across ${prof.unpaidYears.length ? prof.unpaidYears.join(' & ') : 'open dues'} is past due. Please remit & confirm with ${state.property.managerName}.`,
     });
   };
 
@@ -230,7 +237,7 @@ export function ArrearsPromisesView() {
         const unit = state.units.find((u) => u.id === co.obligation.unitId);
         const tier = tenant ? arrearsMap[tenant.id]?.tier || 'Overdue' : 'Overdue';
         return [
-          tenant ? `${tenant.firstName} ${tenant.lastName}` : '',
+          tenant ? formatTenantName(tenant) : '',
           unit?.code || '',
           unit?.name || '',
           tier,
@@ -267,7 +274,7 @@ export function ArrearsPromisesView() {
         );
         const unit = activeAg ? state.units.find((u) => u.id === activeAg.unitId) : undefined;
         return [
-          tenant ? `${tenant.firstName} ${tenant.lastName}` : '',
+          tenant ? formatTenantName(tenant) : '',
           unit?.code || '',
           ec.commitment.promisedDate,
           ec.commitment.extendedUntilDate || '',
@@ -418,7 +425,7 @@ export function ArrearsPromisesView() {
                     className="text-left min-h-[44px] flex flex-col justify-center"
                   >
                     <span className="hig-headline block">
-                      {tenant.firstName} {tenant.lastName}
+                      {formatTenantName(tenant)}
                     </span>
                     <span className="hig-footnote">
                       {unit?.code} · {unit?.name}
@@ -467,6 +474,7 @@ export function ArrearsPromisesView() {
                       style={{ color: 'var(--status-warning-ink)' }}
                     >
                       {formatNaira(prof.unpaidLevyAmount)}
+                      {prof.unpaidOtherAmount > 0 ? ` (+${formatNaira(prof.unpaidOtherAmount)} other)` : ''}
                     </span>
                   </div>
                 </div>
@@ -542,7 +550,7 @@ export function ArrearsPromisesView() {
                         className="text-left hover:underline"
                       >
                         <span className="font-semibold text-[var(--ink-primary)] block">
-                          {tenant.firstName} {tenant.lastName}
+                          {formatTenantName(tenant)}
                         </span>
                         <span className="hig-footnote">
                           {unit?.code} · {unit?.name}
@@ -573,7 +581,12 @@ export function ArrearsPromisesView() {
                       className="py-3.5 px-4 text-right font-mono-nums"
                       style={{ color: 'var(--status-warning-ink)' }}
                     >
-                      {formatNaira(prof.unpaidLevyAmount)}
+                      <span>{formatNaira(prof.unpaidLevyAmount)}</span>
+                      {prof.unpaidOtherAmount > 0 && (
+                        <span className="block hig-caption text-[var(--ink-secondary)]">
+                          +{formatNaira(prof.unpaidOtherAmount)} other
+                        </span>
+                      )}
                     </td>
                     <td
                       className="py-3.5 px-4 text-right font-mono-nums font-semibold"
@@ -652,10 +665,10 @@ export function ArrearsPromisesView() {
                       className="text-left min-h-[44px] flex flex-col justify-center"
                     >
                       <span className="hig-headline block">
-                        {tenant?.firstName} {tenant?.lastName}
+                        {formatTenantName(tenant)}
                       </span>
                       <span className="hig-footnote">
-                        {unit?.code} · {co.obligation.rentalPeriodLabel}
+                        {unit?.code} · {co.obligation.rentalPeriodLabel} ({getObligationCategoryLabel(co.obligation)})
                       </span>
                     </button>
                     <div className="text-right shrink-0">
@@ -745,7 +758,7 @@ export function ArrearsPromisesView() {
                           className="text-left hover:underline"
                         >
                           <span className="font-semibold text-[var(--ink-primary)] block">
-                            {tenant?.firstName} {tenant?.lastName}
+                            {formatTenantName(tenant)}
                           </span>
                           <span className="hig-footnote">
                             {unit?.code} · {unit?.name}
@@ -753,8 +766,11 @@ export function ArrearsPromisesView() {
                         </button>
                       </td>
                       <td className="py-3.5 px-4">
-                        <span className="text-[var(--ink-primary)] block">{co.obligation.rentalPeriodLabel}</span>
-                        <span className="hig-footnote">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[var(--ink-primary)] font-medium">{co.obligation.rentalPeriodLabel}</span>
+                          <StatusBadge label={getObligationCategoryLabel(co.obligation)} tone="neutral" />
+                        </div>
+                        <span className="hig-footnote block mt-0.5">
                           Due {formatDateShort(co.obligation.dueDate)}
                         </span>
                       </td>
@@ -852,7 +868,7 @@ export function ArrearsPromisesView() {
                       className="text-left min-h-[44px] flex flex-col justify-center"
                     >
                       <span className="hig-headline block">
-                        {tenant?.firstName} {tenant?.lastName}
+                        {formatTenantName(tenant)}
                       </span>
                       <span className="hig-footnote font-mono-nums">
                         Deadline: {formatDateShort(deadline)}
@@ -956,7 +972,7 @@ export function ArrearsPromisesView() {
                           onClick={() => tenant && setSelectedTenantIdForDrawer(tenant.id)}
                           className="hover:underline"
                         >
-                          {tenant?.firstName} {tenant?.lastName}
+                          {formatTenantName(tenant)}
                         </button>
                       </td>
                       <td className="py-3.5 px-4 font-mono-nums text-[var(--ink-primary)]">
@@ -1069,7 +1085,7 @@ export function ArrearsPromisesView() {
                 >
                   {tenantsWithOpenObs.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.firstName} {t.lastName}
+                      {formatTenantName(t)}
                     </option>
                   ))}
                 </select>

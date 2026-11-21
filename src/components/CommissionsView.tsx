@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { useRentalStore } from '../context/RentalStore';
 import { exportFilteredCsv } from '../utils/csvExport';
-import { formatDateShort, formatNaira, parseCurrencyValue } from '../utils/format';
+import { formatDateShort, formatNaira, formatTenantName, parseCurrencyValue } from '../utils/format';
 import { CurrencyInput } from './CurrencyInput';
 import { StatusBadge } from './StatusBadge';
 import { ExportCsvButton, SearchInput } from './TableToolbarControls';
@@ -25,7 +25,7 @@ export function CommissionsView() {
       const tenant = state.tenants.find((t) => t.id === c.tenantId);
       const agreement = state.agreements.find((a) => a.id === c.agreementId);
       const unit = agreement ? state.units.find((u) => u.id === agreement.unitId) : undefined;
-      const searchable = `${tenant?.firstName || ''} ${tenant?.lastName || ''} ${unit?.code || ''} ${unit?.name || ''} ${c.note} ${lawyer?.name || ''}`.toLowerCase();
+      const searchable = `${formatTenantName(tenant)} ${tenant?.alias || ''} ${unit?.code || ''} ${unit?.name || ''} ${c.note} ${lawyer?.name || ''}`.toLowerCase();
       return searchable.includes(q);
     });
   }, [state.commissions, state.tenants, state.agreements, state.units, lawyer, q]);
@@ -59,7 +59,7 @@ export function CommissionsView() {
         const unit = agreement ? state.units.find((u) => u.id === agreement.unitId) : undefined;
         return [
           c.createdAt,
-          tenant ? `${tenant.firstName} ${tenant.lastName}` : '',
+          tenant ? formatTenantName(tenant) : '',
           unit?.code || '',
           unit?.name || '',
           c.note,
@@ -111,7 +111,7 @@ export function CommissionsView() {
         <div>
           <h1 className="hig-title-1">Lawyer Commission Ledger</h1>
           <p className="hig-callout mt-1">
-            Calculated at {state.settings.lawyerCommissionRatePercent}% strictly on eligible rent collected (Security Levy & non-rent charges excluded) · Assigned lawyer: {lawyer?.name || 'Not set'}.
+            Calculated at {state.settings.lawyerCommissionRatePercent}% strictly on eligible rent &amp; commission-eligible custom charges collected (Security Levy excluded) · Assigned lawyer: {lawyer?.name || 'Not set'}.
           </p>
         </div>
 
@@ -205,7 +205,7 @@ export function CommissionsView() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <span className="hig-headline block">
-                        {tenant?.firstName} {tenant?.lastName}
+                        {formatTenantName(tenant)}
                       </span>
                       <span className="hig-footnote tabular-nums">
                         {formatDateShort(c.createdAt)}
@@ -267,7 +267,7 @@ export function CommissionsView() {
                     <tr key={c.id} className="hover:bg-[var(--bg-hover)]">
                       <td className="py-3.5 px-5">
                         <span className="font-semibold text-[var(--ink-primary)] block">
-                          {tenant?.firstName} {tenant?.lastName}
+                          {formatTenantName(tenant)}
                         </span>
                         <span className="hig-footnote tabular-nums">
                           {formatDateShort(c.createdAt)}
